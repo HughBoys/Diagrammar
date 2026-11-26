@@ -1,0 +1,2262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Cash Machine Architecture &amp; Action Simulator</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --bg-2: #111827;
+    --card: #1e293b;
+    --line: #334155;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --accent: #3b82f6;
+    --amber: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.4 ui-sans-serif, "Segoe UI", Helvetica, Arial, sans-serif;
+    overflow: hidden;
+  }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  button:hover { background: #273449; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: #1d4ed8; border-color: #2563eb; }
+  button.primary:hover { background: #1e40af; }
+  button.danger { background: #3f1d24; border-color: #7f1d1d; color: #fecaca; }
+  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  #app {
+    height: 100%;
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr) 312px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 8px 12px;
+    background: #0f172a;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+  .brand-mark {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: #1e293b;
+    box-shadow: inset 3px 0 0 #38bdf8, inset 0 0 0 1px #334155;
+  }
+  .brand-title { font-weight: 700; letter-spacing: 0.01em; }
+  .brand-sub { color: var(--muted); font-size: 11px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .sep { width: 1px; height: 22px; background: var(--line); margin: 0 2px; }
+  .check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  #zoom-label { min-width: 42px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: #dbeafe; }
+  #sidebar, #inspector {
+    min-height: 0;
+    background: var(--bg-2);
+    display: flex;
+    flex-direction: column;
+  }
+  #sidebar { border-right: 1px solid var(--line); }
+  #inspector { border-left: 1px solid var(--line); }
+  .side-head, .panel-head {
+    padding: 12px 12px 8px;
+    border-bottom: 1px solid #1f2a3d;
+  }
+  .side-head h2, .panel-head h2 { margin: 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .side-head p, .hint { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+  #action-list { overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; }
+  .action-btn { text-align: left; width: 100%; }
+  .action-btn .name { display: block; font-weight: 650; }
+  .action-btn .meta { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .action-btn.on { border-color: var(--accent); background: #172554; }
+  .transport { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  #transport-status { color: var(--amber); font-size: 12px; min-height: 1.3em; }
+  .transport-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .transport-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  button.wide { width: 100%; }
+  #stage { min-width: 0; min-height: 0; }
+  #canvas-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+  #diagram { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #diagram.dragging { cursor: grabbing; }
+  #payload-badge {
+    position: absolute;
+    transform: translate(-50%, -130%);
+    max-width: 280px;
+    background: #020617;
+    color: #f8fafc;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 6px 8px;
+    pointer-events: none;
+    z-index: 4;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  }
+  #payload-badge[hidden] { display: none !important; }
+  #badge-title { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  #badge-payload { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; word-break: break-word; }
+  #dropmask {
+    position: absolute; inset: 12px; z-index: 6;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px dashed var(--accent); border-radius: 16px;
+    background: rgba(15, 23, 42, 0.86);
+    font-size: 18px; pointer-events: none;
+  }
+  #dropmask[hidden] { display: none !important; }
+  #actor-slot { overflow: auto; max-height: 46%; border-bottom: 1px solid var(--line); }
+  #actor-slot:empty { display: none; border: 0; }
+  #seq { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  #now { padding: 10px 12px 4px; }
+  #steps { overflow: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .now-kicker { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .now-title { margin: 2px 0 6px; font-size: 15px; }
+  .now-path { color: #cbd5e1; margin-bottom: 6px; }
+  .chip {
+    display: inline-block; border: 1px solid var(--line); border-radius: 999px;
+    padding: 1px 8px; font-size: 11px; margin-left: 6px;
+  }
+  .now-desc { color: #e2e8f0; margin: 0 0 6px; }
+  .now-pay {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; background: #0b1220; border-radius: 6px; padding: 6px 8px;
+    word-break: break-word; color: #fde68a;
+  }
+  .step-row { text-align: left; width: 100%; }
+  .step-row .ttl { display: block; font-weight: 650; }
+  .step-row .sub { display: block; color: var(--muted); font-size: 11px; }
+  .step-row.current { border-color: var(--amber); background: #292314; }
+  .legend { max-height: 32%; overflow: auto; border-top: 1px solid var(--line); padding: 8px 10px 12px; }
+  .legend h2 { margin: 4px 0 8px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .legend-row { display: grid; grid-template-columns: 36px 1fr; gap: 8px; align-items: start; margin-bottom: 7px; }
+  .swatch { display: block; height: 0; margin-top: 7px; }
+  .legend-row b { display: block; font-weight: 650; }
+  .legend-row span { color: var(--muted); font-size: 11px; }
+  .actor-card { padding: 12px; }
+  .actor-top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+  .actor-card h3 { margin: 12px 0 6px; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+  .actor-card h2 { margin: 2px 0; font-size: 16px; }
+  .actor-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); font-size: 11px; }
+  .actor-card ul { margin: 0; padding-left: 16px; }
+  .actor-card li { margin: 3px 0; }
+  .quick { display: flex; flex-direction: column; gap: 6px; }
+  .modal {
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(2, 6, 23, 0.72);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal[hidden] { display: none !important; }
+  .modal-card {
+    background: #0f172a; border: 1px solid var(--line); border-radius: 14px;
+    width: min(560px, 100%); max-height: 100%; overflow: auto;
+    box-shadow: 0 24px 80px rgba(0,0,0,.45);
+  }
+  .editor-card { width: min(1080px, 100%); height: min(860px, 100%); display: flex; flex-direction: column; overflow: hidden; }
+  .modal-head, .editor-foot {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+  }
+  .editor-foot { border-bottom: 0; border-top: 1px solid var(--line); }
+  .modal-head h2 { margin: 0; font-size: 16px; }
+  .modal-body { padding: 14px; }
+  .print-choices { display: flex; flex-direction: column; gap: 8px; }
+  .print-choices button { text-align: left; padding: 10px 12px; }
+  .editor-body { display: grid; grid-template-columns: 230px 1fr; min-height: 0; flex: 1; }
+  .editor-list { border-right: 1px solid var(--line); overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .editor-list button.on { border-color: var(--accent); background: #172554; }
+  #ed-form { overflow: auto; padding: 12px 14px 18px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .field span { color: var(--muted); font-size: 11px; }
+  input[type="text"], select, textarea {
+    background: #0b1220; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%;
+  }
+  textarea { min-height: 58px; resize: vertical; }
+  .step-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #111827; }
+  .step-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .icon-row { display: flex; gap: 6px; }
+  #toasts {
+    position: fixed; right: 14px; bottom: 14px; z-index: 60;
+    display: flex; flex-direction: column; gap: 8px; max-width: min(420px, calc(100% - 28px));
+  }
+  .toast {
+    background: #1e293b; border: 1px solid #475569; border-radius: 10px;
+    padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35); cursor: pointer;
+  }
+  .toast.bad { border-color: #ef4444; }
+  .print-only { display: none; }
+  body.hide-left #app { grid-template-columns: minmax(0, 1fr) 312px; }
+  body.hide-left #sidebar { display: none; }
+  body.hide-left #stage { grid-column: 1; }
+  body.hide-left #inspector { grid-column: 2; }
+  body.hide-right #app { grid-template-columns: 268px minmax(0, 1fr); }
+  body.hide-right #inspector { display: none; }
+  body.hide-left.hide-right #app { grid-template-columns: minmax(0, 1fr); }
+  body.hide-left.hide-right #stage { grid-column: 1; }
+  body.hide-left.hide-right #inspector { display: none; }
+
+  /* Diagram paint. Geometry lives in the SVG; theme colors live here so print can restyle them. */
+  .canvas-bg { fill: #0b1220; }
+  .sub-box { fill: #121a2b; stroke-width: 1.4; }
+  .sub-title { font-size: 13px; font-weight: 700; fill: #e2e8f0; }
+  .sub-line { font-size: 10px; fill: #94a3b8; }
+  .node-bg { fill: #1e293b; stroke-width: 1.6; }
+  .node-title { font-size: 14px; font-weight: 700; fill: #f8fafc; }
+  .node-line { font-size: 11px; fill: #94a3b8; }
+  .node-kicker { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; }
+  .plate-bg { fill: #0f172a; stroke: #334155; stroke-width: 1; }
+  .plate-title { font-size: 13px; font-weight: 700; fill: #e2e8f0; }
+  .wire { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .badge-bg { fill: #0b1220; stroke-width: 1; }
+  .badge-text { font-size: 9px; fill: #f8fafc; font-weight: 650; }
+  .port { stroke: #0b1220; stroke-width: 1.5; }
+  .node { cursor: pointer; transition: opacity 0.3s ease; }
+  .wire-group { transition: opacity 0.3s ease; }
+  .node.is-dim, .wire-group.is-dim { opacity: 0.22; }
+  .node.is-current .node-bg { stroke: #fbbf24; stroke-width: 2.6; filter: url(#nodeglow); }
+  .wire-group.is-hot .wire { stroke-width: 4.6; filter: url(#glow); }
+  #diagram.simulating .plate { opacity: 0.3; }
+  #diagram.hide-power .power-rail { display: none; }
+  #diagram.hide-labels .wire-badge { display: none; }
+  #diagram.hide-boxes .sub-visual { display: none; }
+
+  @page { size: landscape; margin: 10mm; }
+  @media print {
+    html, body { height: auto; overflow: visible; background: #fff; color: #0f172a; }
+    .no-print, #payload-badge, #dropmask, .sheet-grid { display: none !important; }
+    .print-only { display: block !important; }
+    #app, #stage, #canvas-wrap { display: block; width: auto; height: auto; overflow: visible; background: #fff; }
+    #diagram { width: 100%; height: auto; cursor: default; }
+    .canvas-bg, .sub-box, .node-bg, .plate-bg, .badge-bg { fill: #ffffff !important; }
+    .sub-title, .plate-title, .node-title, .badge-text { fill: #0f172a !important; }
+    .sub-line, .node-line { fill: #334155 !important; }
+    .node.is-dim, .wire-group.is-dim, #diagram.simulating .plate { opacity: 1 !important; }
+    .node.is-current .node-bg { filter: none !important; stroke: #c2410c !important; }
+    body.print-action .node.is-dim .node-bg { stroke: #cbd5e1 !important; }
+    body.print-action .node.is-dim .node-title,
+    body.print-action .node.is-dim .node-line,
+    body.print-action .node.is-dim .node-kicker { fill: #64748b !important; }
+    body.print-action .wire-group.is-dim .wire { stroke: #d4d4d8 !important; }
+    body.print-action .wire-group.is-dim .badge-text { fill: #64748b !important; }
+    body.print-action .wire-group.is-dim .badge-bg { stroke: #d4d4d8 !important; }
+    #print-root { break-before: page; page-break-before: always; }
+    #print-root h1 { margin: 0 0 4px; font-size: 18px; }
+    #print-root h2 { margin: 16px 0 6px; font-size: 13px; }
+    #print-root p { margin: 0 0 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    th, td { border: 1px solid #cbd5e1; padding: 4px 6px; vertical-align: top; text-align: left; }
+    th { background: #f1f5f9; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar no-print">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="brand-title">Cash Machine Architecture</div>
+        <div class="brand-sub">Hardware schematic and action simulator</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button type="button" id="btn-load">Load CSV</button>
+      <button type="button" id="btn-save">Download CSV</button>
+      <button type="button" id="btn-edit">Edit actions</button>
+      <button type="button" id="btn-print">Print / Save PDF</button>
+      <span class="sep"></span>
+      <label class="check"><input type="checkbox" id="layer-power" checked> Power rails</label>
+      <label class="check"><input type="checkbox" id="layer-labels" checked> Wire labels</label>
+      <label class="check"><input type="checkbox" id="layer-boxes" checked> Subsystem boxes</label>
+      <span class="sep"></span>
+      <button type="button" id="toggle-left" aria-pressed="true">Actions</button>
+      <button type="button" id="toggle-right" aria-pressed="true">Details</button>
+      <button type="button" id="zoom-out" title="Zoom out">−</button>
+      <span id="zoom-label">100%</span>
+      <button type="button" id="zoom-in" title="Zoom in">+</button>
+      <button type="button" id="zoom-fit">Fit</button>
+    </div>
+  </header>
+
+  <aside id="sidebar" class="no-print">
+    <div class="side-head">
+      <h2>Actions</h2>
+      <p id="file-label">Embedded example</p>
+    </div>
+    <div id="action-list"></div>
+    <div class="transport">
+      <div id="transport-status">Full system</div>
+      <div class="transport-grid">
+        <button type="button" id="btn-play" disabled>Play</button>
+        <button type="button" id="btn-replay" disabled>Replay</button>
+        <button type="button" id="btn-back" disabled>Step back</button>
+        <button type="button" id="btn-fwd" disabled>Step forward</button>
+      </div>
+      <button type="button" id="btn-reset" class="wide">Reset / Show full system</button>
+      <div class="transport-row">
+        <label class="check"><input type="checkbox" id="loop"> Loop</label>
+        <label class="check">Speed
+          <select id="speed">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Space plays. Arrow keys step. Drop a CSV anywhere to load it.</p>
+    </div>
+  </aside>
+
+  <main id="stage">
+    <div id="canvas-wrap">
+      <svg id="diagram" viewBox="0 0 1600 1140" role="application" aria-label="Cash machine hardware architecture"></svg>
+      <div id="payload-badge" hidden>
+        <div id="badge-title"></div>
+        <div id="badge-payload"></div>
+      </div>
+      <div id="dropmask" hidden>Drop a CSV to load actions</div>
+    </div>
+  </main>
+
+  <aside id="inspector" class="no-print">
+    <div id="actor-slot"></div>
+    <section id="seq">
+      <div class="panel-head"><h2>Sequence</h2></div>
+      <div id="now"></div>
+      <div id="steps"></div>
+    </section>
+    <section class="legend">
+      <h2>Connection legend</h2>
+      <div id="legend"></div>
+    </section>
+  </aside>
+</div>
+
+<div id="print-root" class="print-only">
+  <h1 id="print-h"></h1>
+  <p id="print-sub"></p>
+  <div id="print-body"></div>
+</div>
+
+<div id="editor" class="modal no-print" hidden>
+  <div class="modal-card editor-card" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+    <div class="modal-head">
+      <h2 id="editor-title">Action editor</h2>
+      <div class="icon-row">
+        <button type="button" id="ed-restore">Restore example</button>
+        <button type="button" id="ed-close">Close</button>
+      </div>
+    </div>
+    <div class="editor-body">
+      <div class="editor-list" id="ed-actions"></div>
+      <div id="ed-form"></div>
+    </div>
+    <div class="editor-foot">
+      <p class="hint" style="margin:0">Edits update the simulator immediately. Download CSV to keep them.</p>
+      <button type="button" id="ed-save" class="primary">Download CSV</button>
+    </div>
+  </div>
+</div>
+
+<div id="print-modal" class="modal no-print" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="print-title">
+    <div class="modal-head">
+      <h2 id="print-title">Print / Save PDF</h2>
+      <button type="button" id="print-cancel">Cancel</button>
+    </div>
+    <div class="modal-body">
+      <p>Choose a sheet. In the system dialog, pick A3 or A4, orientation Landscape, and turn on background graphics so the wire colors print.</p>
+      <div class="print-choices">
+        <button type="button" id="print-schematic"><b>Full system wiring schematic</b><br>Color diagram, legend, and bill of materials.</button>
+        <button type="button" id="print-action"><b>Active action sequence</b><br>Highlighted path plus the numbered step table.</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="no-print" aria-live="polite"></div>
+<input type="file" id="file-input" accept=".csv,text/csv" hidden>
+
+<script>
+'use strict';
+
+/* Embedded example. Parsed on boot so the file runs with no server. */
+const DEFAULT_CSV = `Action_Name,Step,From_Actor,To_Actor,Connection_Type,Process_Title,Process_Description,Payload_Or_Signal
+Mains Power Distribution (UK 230V 50Hz),1,UK_Mains_230V,Main_PC,Mains_230V_AC,Power Main Central PC,"UK Type G 230V 50Hz mains feeds the Main PC (Windows 11, i9, RTX 4080), which also supplies 5V USB bus power to the ELEGOO Mega R3, Focusrite Scarlett 2i2, and ToF sensor.",230V 50Hz AC | ~200W typ / 600W peak (850W PSU)
+Mains Power Distribution (UK 230V 50Hz),2,UK_Mains_230V,Beetronics_22HB9M,Mains_230V_AC,Power Outdoor Touchscreen,UK Type G 230V 50Hz mains feeds the Beetronics 22HB9M/U1 external AC-to-DC power adapter for the 22-inch high-brightness display.,230V 50Hz AC | ~40W typ / 55W peak
+Mains Power Distribution (UK 230V 50Hz),3,UK_Mains_230V,MeanWell_24V_PSU,Mains_230V_AC,Power 24V LED Driver,UK Type G 230V 50Hz mains feeds the Mean Well LPV-150-24 LED driver (~89% efficiency; 120W safe continuous DC output / 150W max).,230V 50Hz AC | ~70W typ / 135W safe peak (169W max)
+Mains Power Distribution (UK 230V 50Hz),4,MeanWell_24V_PSU,WS2814_LEDs,Power_24V_DC,Supply 24V LED Strip Rail,Mean Well LPV-150-24 outputs regulated 24V DC to the 3000K WS2814 COB RGBW LED strips (V- bonded to Arduino Mega GND).,24V DC | Up to 5.0A safe (6.25A max)
+Mains Power Distribution (UK 230V 50Hz),5,UK_Mains_230V,Aux_24V_PSU,Mains_230V_AC,Power Dispenser 24V PSU,UK Type G 230V 50Hz mains feeds the dedicated 24V DC auxiliary power supply driving both TCD-180M card dispensers.,230V 50Hz AC | ~10W idle / 65W peak (120W max)
+Mains Power Distribution (UK 230V 50Hz),6,Aux_24V_PSU,TCD180M_Plastic,Power_24V_DC,Supply Plastic Dispenser,Dedicated 24V DC power rail feeds the TCD-180M Plastic Card Dispenser motor and logic board.,24V DC | ~2.5A dispense peak (~60W)
+Mains Power Distribution (UK 230V 50Hz),7,Aux_24V_PSU,TCD180M_Metal,Power_24V_DC,Supply Metal Dispenser,Dedicated 24V DC power rail feeds the TCD-180M Metal Card Dispenser motor and logic board.,24V DC | ~2.5A dispense peak (~60W)
+Mains Power Distribution (UK 230V 50Hz),8,UK_Mains_230V,TMC2209_5V_PSU,Mains_230V_AC,Power 5V Stepper Driver PSU,UK Type G 230V 50Hz mains feeds the dedicated 5V DC power supply for the 6121 TMC2209 stepper driver.,230V 50Hz AC | ~3W idle / 15W peak
+Mains Power Distribution (UK 230V 50Hz),9,TMC2209_5V_PSU,TMC2209_Driver,Power_5V_DC,Supply 6121 TMC2209 Driver,Dedicated 5V DC power supply feeds the 6121 TMC2209 stepper motor driver (common GND bonded to Arduino Mega GND; verify VM >= 4.75V under load).,5V DC | Up to 2-3A (10-15W)
+Mains Power Distribution (UK 230V 50Hz),10,UK_Mains_230V,Fosi_V3_Amp,Mains_230V_AC,Power Fosi V3 32V Amp PSU,UK Type G 230V 50Hz mains feeds the Fosi Audio V3 32V/5A power supply driving the Dayton BST-1 shaker on one channel (capped at 50W RMS).,230V 50Hz AC | ~5W idle / 70W peak (180W PSU max)
+Mains Power Distribution (UK 230V 50Hz),11,UK_Mains_230V,Genelec_8010A,Mains_230V_AC,Power Genelec 8010A Speaker,UK Type G 230V 50Hz mains directly powers the active Genelec 8010A mono studio monitor (internal 25W+25W Class D amp).,230V 50Hz AC | ~5W idle / 55W peak
+Idle State Lighting Animation,1,HTML_Frontend,Beetronics_22HB9M,HDMI_DisplayPort,Render Idle Attract Screen,Main PC GPU outputs the HTML Frontend idle attract screen to the Beetronics 22HB9M/U1 high-brightness outdoor display over HDMI or DisplayPort.,1080p60 Video Output (HDMI / DP)
+Idle State Lighting Animation,2,HTML_Frontend,Python_Controller,WebSocket_OSC,Trigger Idle Lighting State,HTML Frontend sends idle lighting state command to Python Hardware Controller over localhost.,"{""cmd"":""LED_STATE"",""state"":""IDLE""}"
+Idle State Lighting Animation,3,Python_Controller,Arduino_Mega,USB_Serial,Send LED State ID,Python Hardware Controller reads idle animation parameters from the local LED CSV config and sends a state activation packet to ELEGOO Mega R3 over USB-A to USB-B serial.,LED:IDLE
+Idle State Lighting Animation,4,Arduino_Mega,WS2814_LEDs,NeoPixel_1Wire,Render Idle Animation,Arduino Mega drives 3000K 24V COB RGBW WS2814 strips using the Adafruit NeoPixel library (1-wire NRZ data via 330-470 ohm resistor) powered by the Mean Well LPV-150-24 PSU.,Adafruit NeoPixel 800kHz RGBW
+User Touch Input,1,Beetronics_22HB9M,HTML_Frontend,USB_HID_Touch,Capture Touchscreen Tap,User taps an interactive control on the Beetronics 22HB9M/U1 touchscreen; touch coordinates are sent to the Main PC and HTML Frontend over USB HID.,USB HID Touch Event (X/Y Tap)
+User Touch Input,2,HTML_Frontend,Beetronics_22HB9M,HDMI_DisplayPort,Update On-Screen UI,HTML Frontend processes the touch input and renders the updated interface screen back to the Beetronics 22HB9M/U1 over HDMI or DisplayPort.,Updated UI Frame (HDMI / DP)
+New Lighting State,1,HTML_Frontend,Python_Controller,WebSocket_OSC,Trigger Active Lighting,HTML Frontend sends a new lighting state command (e.g. processing / win / alert) to Python Hardware Controller.,"{""cmd"":""LED_STATE"",""state"":""ACTIVE_CHASE""}"
+New Lighting State,2,Python_Controller,Arduino_Mega,USB_Serial,Send New State ID,Python Hardware Controller maps the requested state from the LED animation CSV and sends a compact state-switch command to ELEGOO Mega R3 over USB serial.,LED:ACTIVE_CHASE
+New Lighting State,3,Arduino_Mega,WS2814_LEDs,NeoPixel_1Wire,Update LED Animation,Arduino Mega smoothly transitions the 24V WS2814 COB RGBW LED strips to the new animation profile via Adafruit NeoPixel (1-wire NRZ protocol).,Adafruit NeoPixel Frame Update
+Eject Plastic Card,1,Beetronics_22HB9M,HTML_Frontend,USB_HID_Touch,Initiate Plastic Card Flow,User taps the start button on the Beetronics 22HB9M/U1 touchscreen; USB touch event is received by the HTML Frontend.,USB HID Touch Event (Start)
+Eject Plastic Card,2,HTML_Frontend,Python_Controller,WebSocket_OSC,Request Plastic Card,HTML Frontend sends dispense command for a plastic card to Python Hardware Controller.,"{""cmd"":""DISPENSE"",""type"":""PLASTIC""}"
+Eject Plastic Card,3,Python_Controller,TCD180M_Plastic,USB_Serial,Send Dispense Command,Python Hardware Controller communicates directly with the TCD-180M Plastic Card Dispenser over its dedicated wired USB serial COM port to eject one plastic card.,TX: DISPENSE_CARD (COM_PLASTIC)
+Eject Plastic Card,4,TCD180M_Plastic,Python_Controller,USB_Serial,Return Dispense Status,TCD-180M Plastic Card Dispenser confirms successful ejection (or reports low / empty hopper or jam) back over wired USB serial.,RX: STATUS_OK / HOPPER_LEVEL
+Eject Plastic Card,5,Python_Controller,HTML_Frontend,WebSocket_OSC,Confirm Card Ejected,Python Hardware Controller relays dispense confirmation to HTML Frontend to advance the user journey.,"{""event"":""DISPENSED"",""type"":""PLASTIC"",""ok"":true}"
+Eject Plastic Card,6,HTML_Frontend,Beetronics_22HB9M,HDMI_DisplayPort,Show Take Card Prompt,HTML Frontend updates the Beetronics 22HB9M/U1 display over HDMI or DisplayPort to prompt the user to collect their plastic card.,UI Prompt: Take Plastic Card
+Plastic Card Inserted,1,ToF_Sensor,Arduino_Mega,I2C_Bus,Detect Card at Slot,Card acceptor Time-of-Flight (ToF) sensor detects an inserted plastic card at the intake slot and reports distance drop to ELEGOO Mega R3 over I2C.,I2C: DISTANCE BELOW THRESHOLD
+Plastic Card Inserted,2,Arduino_Mega,TMC2209_Driver,Digital_STEP_DIR,Enable Intake Rollers,Arduino Mega briefly pauses LED interrupts and outputs STEP/DIR/EN pulses to the 6121 TMC2209 Stepper Driver to pull the card into the machine.,STEP/DIR Pulses (Intake)
+Plastic Card Inserted,3,TMC2209_Driver,Stepper_Motor,Motor_Coils,Pull Card Into Acceptor,6121 TMC2209 Stepper Driver (powered by its dedicated 5V PSU) energizes the bipolar stepper coils to rotate the intake rollers until the card is seated.,5V Bipolar Coil Drive (TMC2209)
+Plastic Card Inserted,4,Arduino_Mega,Python_Controller,USB_Serial,Send Card Inserted Event,Arduino Mega transmits card-inserted activation state to Python Hardware Controller via USB-A to USB-B wired serial comms.,EVENT:CARD_INSERTED
+Plastic Card Inserted,5,Python_Controller,HTML_Frontend,WebSocket_OSC,Advance UI State,Python Hardware Controller relays the card-inserted event to HTML Frontend.,"{""event"":""CARD_INSERTED""}"
+Plastic Card Inserted,6,HTML_Frontend,Beetronics_22HB9M,HDMI_DisplayPort,Render Next Screen,HTML Frontend renders the post-insertion screen onto the Beetronics 22HB9M/U1 monitor over HDMI or DisplayPort.,UI Screen: Card Accepted
+Rumble / Vibration Trigger,1,HTML_Frontend,Python_Controller,WebSocket_OSC,Trigger Haptic Rumble,HTML Frontend sends vibration trigger to Python Hardware Controller with intensity (1 to 5) and duration (ms) values.,"{""cmd"":""RUMBLE"",""intensity"":4,""duration_ms"":800}"
+Rumble / Vibration Trigger,2,Python_Controller,Focusrite_Scarlett,USB_Audio,Synthesize Low-Freq Wave (Ch 1),Python Hardware Controller generates a band-limited 20-60 Hz waveform scaled to intensity 1-5 and streams it strictly to Channel 1 (Left) of the Focusrite Scarlett 2i2 in shared audio mode.,PCM 20-60Hz Mono (Ch 1 / Left)
+Rumble / Vibration Trigger,3,Focusrite_Scarlett,Fosi_V3_Amp,Analog_Line_Audio,Output Analog Signal (Out 1),Focusrite Scarlett 2i2 routes Channel 1 via Line Out 1 using a 1/4-inch TS unbalanced cable into the Left RCA input of the Fosi Audio V3.,Line Out 1 (L) -> Left RCA
+Rumble / Vibration Trigger,4,Fosi_V3_Amp,Dayton_BST1,Speaker_High_Power,Drive Tactile Bass Shaker,"Fosi Audio V3 (32V version, single channel only and gain-capped for 50W) amplifies the signal over speaker wire to vibrate the Dayton Audio BST-1 mounted to the cash machine frame.",Single-Ch Amplified Drive (Max 50W RMS)
+Play Mono Audio / SFX,1,HTML_Frontend,Focusrite_Scarlett,USB_Audio,Generate & Output Mono Audio (Ch 2),"HTML Frontend generates UI/SFX audio directly and routes it straight to Channel 2 (Right) of the PC's connected audio interface (Focusrite Scarlett 2i2), bypassing the Python Hardware Controller.",Direct Web Audio Mono (Ch 2 / Right)
+Play Mono Audio / SFX,2,Focusrite_Scarlett,Genelec_8010A,Analog_Line_Audio,Drive Active Mono Speaker,Focusrite Scarlett 2i2 outputs balanced mono line audio from Line Out 2 via a 1/4-inch TRS to Male XLR cable directly into the AC-powered Genelec 8010A speaker.,Line Out 2 (R) -> Balanced XLR
+Eject Metal Card,1,Beetronics_22HB9M,HTML_Frontend,USB_HID_Touch,Confirm Metal Card Dispense,User taps the metal card dispense prompt on the Beetronics 22HB9M/U1 touchscreen; USB HID touch input triggers the HTML Frontend.,USB HID Touch Event (Confirm)
+Eject Metal Card,2,HTML_Frontend,Python_Controller,WebSocket_OSC,Request Metal Card,HTML Frontend sends dispense command for a metal card to Python Hardware Controller.,"{""cmd"":""DISPENSE"",""type"":""METAL""}"
+Eject Metal Card,3,Python_Controller,TCD180M_Metal,USB_Serial,Send Dispense Command,Python Hardware Controller communicates directly with the TCD-180M Metal Card Dispenser over its dedicated wired USB serial COM port to eject one metal card.,TX: DISPENSE_CARD (COM_METAL)
+Eject Metal Card,4,TCD180M_Metal,Python_Controller,USB_Serial,Return Dispense Status,TCD-180M Metal Card Dispenser confirms ejection (or flags heavy-card slip / jam / empty hopper) back to Python over wired USB serial.,RX: STATUS_OK / HOPPER_LEVEL
+Eject Metal Card,5,Python_Controller,HTML_Frontend,WebSocket_OSC,Confirm Metal Card Ejected,Python Hardware Controller updates HTML Frontend that the metal card has been dispensed.,"{""event"":""DISPENSED"",""type"":""METAL"",""ok"":true}"
+Eject Metal Card,6,HTML_Frontend,Beetronics_22HB9M,HDMI_DisplayPort,Show Take Metal Card Prompt,HTML Frontend updates the Beetronics 22HB9M/U1 display over HDMI or DisplayPort to prompt the user to collect their metal card.,UI Prompt: Take Metal Card
+Dispenser Jam / Empty Error,1,TCD180M_Metal,Python_Controller,USB_Serial,Report Hardware Fault,TCD-180M Metal Card Dispenser detects a card jam or empty hopper during a dispense attempt and returns an error status code over wired USB serial.,RX: ERR_JAM_OR_EMPTY
+Dispenser Jam / Empty Error,2,Python_Controller,Arduino_Mega,USB_Serial,Trigger Error Lighting,Python Hardware Controller sends error lighting state command to ELEGOO Mega R3 over USB serial.,LED:ERROR_PULSE
+Dispenser Jam / Empty Error,3,Arduino_Mega,WS2814_LEDs,NeoPixel_1Wire,Flash Amber/Red Alert,Arduino Mega switches WS2814 COB RGBW LED strips via Adafruit NeoPixel to an error indicator state.,Adafruit NeoPixel Error Pattern
+Dispenser Jam / Empty Error,4,Python_Controller,HTML_Frontend,WebSocket_OSC,Send Maintenance Alert State,Python Hardware Controller notifies HTML Frontend with the dispenser fault code to lock out normal operation.,"{""event"":""ERROR"",""source"":""TCD180M_Metal""}"
+Dispenser Jam / Empty Error,5,HTML_Frontend,Beetronics_22HB9M,HDMI_DisplayPort,Display Out-of-Service Screen,HTML Frontend displays an out-of-service / technician alert message on the Beetronics 22HB9M/U1 touchscreen over HDMI or DisplayPort.,UI Screen: Maintenance Required`;
+
+const REQUIRED = ['Action_Name','Step','From_Actor','To_Actor','Connection_Type','Process_Title','Process_Description','Payload_Or_Signal'];
+
+/* Style table. Common_GND is diagram-only; it is not a CSV connection type. */
+const TYPES = {
+  WebSocket_OSC:      { color:'#3B82F6', dash:'8 6',   width:2.5, name:'WebSocket / OSC', style:'dashed', note:'Localhost bidirectional WebSocket / OSC between the HTML frontend and the Python controller.' },
+  USB_Serial:         { color:'#10B981', dash:null,    width:2.5, name:'USB Serial', style:'solid', note:'USB-A to USB-B on the Mega, plus a dedicated USB serial cable to each TCD-180M.' },
+  NeoPixel_1Wire:     { color:'#F59E0B', dash:null,    width:2.5, name:'NeoPixel 1-Wire', style:'solid', note:'5V 1-wire NRZ from the Mega to the WS2814 strips, through a 330–470Ω resistor. Adafruit NeoPixel.' },
+  I2C_Bus:            { color:'#8B5CF6', dash:null,    width:2.5, name:'I2C Bus', style:'solid', note:'SDA / SCL plus VCC / GND between the intake ToF sensor and the Mega.' },
+  Digital_STEP_DIR:   { color:'#06B6D4', dash:null,    width:2.5, name:'STEP / DIR / EN', style:'solid', note:'Digital step, direction, and enable from the Mega to the stepper driver.' },
+  Motor_Coils:        { color:'#EC4899', dash:null,    width:2.6, name:'Motor Coils', style:'solid', note:'4-wire bipolar coils from the driver to the acceptor stepper.' },
+  USB_Audio:          { color:'#6366F1', dash:null,    width:2.5, name:'USB Audio', style:'solid', note:'USB audio stream (WASAPI / ASIO) from Python to the Focusrite Scarlett.' },
+  Analog_Line_Audio:  { color:'#F97316', dash:null,    width:2.5, name:'Analog Line', style:'solid', note:'Line-level audio from the Scarlett 2i2: Line Out 1 to the Fosi (1/4" TS), Line Out 2 to the Genelec (XLR).' },
+  HDMI_DisplayPort:   { color:'#84CC16', dash:null,    width:2.6, name:'HDMI / DisplayPort', style:'solid', note:'1080p60 video from the PC GPU to the Beetronics 22HB9M/U1 display.' },
+  USB_HID_Touch:      { color:'#F472B6', dash:'3 4',   width:2.2, name:'USB HID Touch', style:'dashed', note:'Touch coordinates from the Beetronics display back to the PC over USB HID.' },
+  Speaker_High_Power: { color:'#EF4444', dash:null,    width:4.4, name:'Speaker Power', style:'thick', note:'14–16 AWG speaker wire. Left channel +/− only, gain-capped for a 50W shaker.' },
+  Power_24V_DC:       { color:'#DC2626', dash:'1.4 7', width:2.5, name:'24V DC', style:'dotted', note:'Mean Well LPV-150-24 feeds the LED strip. The 24V auxiliary PSU feeds both card dispensers.' },
+  Power_5V_DC:        { color:'#FDBA74', dash:'1.4 6', width:2.4, name:'5V DC', style:'dotted', note:'Dedicated 5V supply to the 6121 TMC2209 stepper driver.' },
+  Mains_230V_AC:      { color:'#FACC15', dash:null,    width:3.0, name:'Mains 230V AC', style:'thick', note:'UK Type G 230V 50Hz AC from the mains socket to each mains-powered unit.' },
+  Common_GND:         { color:'#DC2626', dash:'1.4 6', width:2.2, name:'Common GND', style:'dotted', note:'Mean Well V− bonded to the Mega GND so the LED data line has a shared return.' }
+};
+const EDIT_TYPES = Object.keys(TYPES).filter(id => id !== 'Common_GND');
+
+const SUBSYSTEMS = [
+  { id:'A', name:'Main Central PC', line:'Windows 11  ·  Intel i9  ·  NVIDIA RTX 4080', x:10, y:36, w:286, h:934, accent:'#38BDF8' },
+  { id:'B', name:'Microcontroller & Lighting', line:'ELEGOO Mega R3  ·  24V COB RGBW', x:356, y:36, w:710, h:464, accent:'#F59E0B' },
+  { id:'E', name:'Audio Output: Haptics & Monitor', line:'Scarlett 2i2 shared mode  ·  Ch1 shaker  ·  Ch2 UI/SFX', x:1102, y:36, w:476, h:464, accent:'#FB7185' },
+  { id:'F', name:'Mains Distribution', line:'UK Type G 230V 50Hz', x:10, y:990, w:1568, h:136, accent:'#FACC15', tx:1150 },
+  { id:'C', name:'Card Dispensing', line:'Direct USB serial  ·  24V motor rail', x:356, y:548, w:456, h:422, accent:'#34D399' },
+  { id:'D', name:'Card Acceptor', line:'ToF intake detect  ·  stepper rollers', x:868, y:548, w:710, h:422, accent:'#A78BFA' }
+];
+
+const ACTORS = {
+  HTML_Frontend: {
+    sub:'A', x:24, y:96, w:198, h:110,
+    kicker:'SOFTWARE', title:'HTML Frontend', lines:['Journey UI','Commands and live state'],
+    name:'HTML Frontend UI', model:'Browser UI on the main PC',
+    blurb:'Starts each guest action and draws the live hardware state.',
+    specs:['Runs on the cash-machine PC','Sends commands and receives events','Localhost WebSocket / OSC only'],
+    notes:'No direct hardware cable. Every sequenced action starts or finishes here.'
+  },
+  Python_Controller: {
+    sub:'A', x:24, y:420, w:198, h:206,
+    kicker:'SOFTWARE', title:'Python Controller', lines:['Serial, LED CSV, audio','Central orchestrator'],
+    name:'Python Hardware Controller', model:'Python service on Windows 11',
+    blurb:'Owns serial comms, the LED-state lookup, dispenser telemetry, and low-frequency haptic synthesis.',
+    specs:['USB serial to the Mega and both TCD-180M units','LED animation parameters from a local CSV','WASAPI / ASIO stream to the Scarlett','Host: Intel i9, NVIDIA RTX 4080'],
+    notes:'This is the only process that talks to the hardware.'
+  },
+  Arduino_Mega: {
+    sub:'B', x:374, y:104, w:214, h:136,
+    kicker:'MCU', title:'ELEGOO MEGA R3', lines:['ATmega2560 · NeoPixel','ToF poll · STEP / DIR'],
+    name:'ELEGOO MEGA R3', model:'ATmega2560',
+    blurb:'Runs the Adafruit NeoPixel show, polls the intake sensor, and steps the acceptor motor.',
+    specs:['USB-B device port to the PC','1-wire data to the WS2814 strips','I2C master for the ToF sensor','STEP / DIR / EN to the stepper driver','GND bonded to the Mean Well V−'],
+    notes:'LED interrupts are paused briefly while the intake rollers run.'
+  },
+  WS2814_LEDs: {
+    sub:'B', x:662, y:100, w:196, h:114,
+    kicker:'LIGHTING', title:'WS2814 COB RGBW', lines:['3000K · 24V · IP20','15 W/m · about 8 m'],
+    name:'WS2814 Arc LED COB RGBW', model:'3000K 24V IP20',
+    blurb:'Addressable 24V COB strip around the machine, driven as a NeoPixel bus.',
+    specs:['15 W/m, 24V, IP20','1-wire NRZ at NeoPixel timing','Series resistor 330–470Ω on the data pin','Powered by the Mean Well 24V rail'],
+    notes:'About 8 m stays inside the 120 W continuous budget of the LED supply.'
+  },
+  MeanWell_24V_PSU: {
+    sub:'B', x:890, y:314, w:160, h:148,
+    kicker:'POWER', title:'Mean Well 24V', lines:['LPV-150-24','150 W · safe 120 W'],
+    name:'Mean Well LPV-150-24', model:'24V DC / 6.25A / 150W',
+    blurb:'Dedicated LED driver. It does not feed the dispensers or the stepper.',
+    specs:['Mains input: 230V 50Hz AC (~89% efficient)','24V DC, 6.25 A, 150 W','80% continuous budget = 120 W','V+ to the WS2814 strip','V− bonded to Mega GND'],
+    notes:'Keep the strip run near 8 m so the supply stays at or below 120 W continuous.',
+    caution:'80% safe continuous load is 120 W, about 8 m of 15 W/m strip.'
+  },
+  TCD180M_Plastic: {
+    sub:'C', x:372, y:622, w:208, h:102,
+    kicker:'DISPENSER', title:'TCD-180M Plastic', lines:['12–24 V USB serial','Own COM port to the PC'],
+    name:'TCD-180M Plastic Card Dispenser', model:'TCD-180M, plastic hopper',
+    blurb:'Dispenses one plastic card on a direct USB serial command from Python.',
+    specs:['12–24 V motor supply from the aux rail','Dedicated USB serial COM port','Reports hopper level, jam, and empty'],
+    notes:'Wired straight to the PC. The Mega is not in this path.'
+  },
+  TCD180M_Metal: {
+    sub:'C', x:372, y:806, w:208, h:102,
+    kicker:'DISPENSER', title:'TCD-180M Metal', lines:['12–24 V USB serial','Own COM port to the PC'],
+    name:'TCD-180M Metal Card Dispenser', model:'TCD-180M, metal hopper',
+    blurb:'Dispenses one metal card. Same electrical pattern as the plastic unit, separate COM port.',
+    specs:['12–24 V from the aux rail','Dedicated USB serial COM port','Reports slip, jam, and empty hopper'],
+    notes:'A fault here is what the error sequence lights and shows on screen.'
+  },
+  Aux_24V_PSU: {
+    sub:'C', x:626, y:702, w:170, h:154,
+    kicker:'POWER', title:'Aux 24V PSU', lines:['Motor / actuator rail','Cards and stepper'],
+    name:'24V Auxiliary Power Supply', model:'24V DC motor rail',
+    blurb:'Separate 24V rail for the two card dispensers. Mains in, 24V out.',
+    specs:['Mains 230V AC in (~10 W idle / 65 W peak)','Feeds both TCD-180M units','Not shared with the LED Mean Well or the stepper PSU'],
+    notes:'Keeps motor inrush off the LED supply.',
+
+    caution:'Do not tie this rail to the Mean Well LED output.'
+  },
+  ToF_Sensor: {
+    sub:'D', x:898, y:626, w:198, h:114,
+    kicker:'SENSOR', title:'ToF Sensor', lines:['Intake chute detect','I2C distance to Mega'],
+    name:'Time-of-Flight Sensor', model:'I2C distance sensor',
+    blurb:'Watches the intake chute. A card is present when the distance drops under the threshold.',
+    specs:['I2C to the Mega: SDA, SCL, VCC, GND','Mounted at the plastic-card intake','Distance drop starts the roller sequence'],
+    notes:'The Mega is the I2C master.'
+  },
+  TMC2209_Driver: {
+    sub:'D', x:1222, y:612, w:224, h:118,
+    kicker:'DRIVER', title:'TMC2209 Driver', lines:['6121 TMC2209 stepper','STEP · DIR · EN'],
+    name:'6121 TMC2209 Stepper Driver', model:'TMC2209 stepper driver (6121)',
+    blurb:'Turns Mega logic pulses into coil current for the intake rollers. Now powered by its own 5V supply.',
+    specs:['STEP / DIR / EN from Mega GPIO','5V DC supply from the dedicated 5V PSU','4-wire bipolar outputs to the acceptor stepper'],
+    notes:'The 24V aux rail no longer feeds this driver.',
+    caution:'Verify VM ≥ 4.75 V under load, per the V3 CSV.'
+  },
+  Stepper_Motor: {
+    sub:'D', x:1222, y:824, w:224, h:106,
+    kicker:'ACTUATOR', title:'Acceptor Stepper', lines:['Rollers pull the card','4-wire bipolar'],
+    name:'Card Acceptor Stepper and Rollers', model:'Bipolar stepper',
+    blurb:'Pulls a detected card fully into the machine.',
+    specs:['Driven by the stepper driver coils','24V coil power via the driver','Runs only while the Mega is pulsing'],
+    notes:'The LED show pauses while this motor moves.'
+  },
+  Beetronics_22HB9M: {
+    sub:'A', x:24, y:262, w:198, h:110,
+    kicker:'DISPLAY', title:'Beetronics 22HB9M', lines:['Outdoor high-brightness','1080p60 · HDMI/DP · touch'],
+    name:'Beetronics 22HB9M/U1 Touch Display', model:'High-brightness outdoor touch display',
+    blurb:'Customer-facing screen. The PC GPU sends the HTML Frontend to it, and taps come back over USB HID.',
+    specs:['1080p60 video in over HDMI or DisplayPort','USB HID touch back to the PC','High-brightness outdoor panel','Mains 230V into an external AC-to-DC adapter'],
+    notes:'Every customer step passes through this screen: attract, touch input, take-card prompts, and maintenance alerts.'
+  },
+  Focusrite_Scarlett: {
+    sub:'E', x:1126, y:110, w:176, h:98,
+    kicker:'AUDIO', title:'Scarlett 2i2', lines:['USB audio, shared mode','Ch1 haptic · Ch2 UI/SFX'],
+    name:'Focusrite Scarlett 2i2', model:'2-in / 2-out USB audio interface',
+    blurb:'Two-channel USB interface. Channel 1 carries only the haptic signal; Channel 2 carries only UI and sound effects.',
+    specs:['USB in: Python controller (Ch 1) and HTML Frontend (Ch 2)','Line Out 1 (L): 1/4" TS to the Fosi left RCA','Line Out 2 (R): XLR to the Genelec 8010A','Shared audio mode'],
+    notes:'Keep Line Out 1 and Line Out 2 on their own endpoints so the shaker feed never reaches the monitor.',
+    caution:'Ch1 is the shaker feed. Do not patch it to the Genelec.'
+  },
+  Genelec_8010A: {
+    sub:'E', x:1352, y:110, w:200, h:98,
+    kicker:'MONITOR', title:'Genelec 8010A', lines:['AC-powered speaker','Line Out 2 via XLR'],
+    name:'Genelec 8010A', model:'AC-powered speaker',
+    blurb:'Plays the UI and sound-effect mono feed from Scarlett Channel 2 (Right).',
+    specs:['Mains 230V AC directly into the speaker','Balanced input via XLR from Scarlett Line Out 2','Carries Ch2 only'],
+    notes:'The haptic Ch1 feed never reaches this speaker.'
+  },
+  Fosi_V3_Amp: {
+    sub:'E', x:1126, y:246, w:176, h:98,
+    kicker:'AMP', title:'Fosi Audio V3', lines:['32 V Class D · 1 ch','Non-bridged · ≤ 50 W'],
+    name:'Fosi Audio V3', model:'32V Class D, single channel',
+    blurb:'One channel only, not bridged, with the gain stopped so the shaker stays inside 50 W.',
+    specs:['Own 32V/5A PSU, fed from mains 230V','Left RCA input from Scarlett Line Out 1','Speaker output to the BST-1 only','Gain capped for 50 W into 4Ω'],
+    notes:'Do not bridge the channels. The second channel is unused.',
+    caution:'Single channel, non-bridged, gain-limited for a 50 W shaker.'
+  },
+  Dayton_BST1: {
+    sub:'E', x:1126, y:384, w:176, h:98,
+    kicker:'HAPTIC', title:'Dayton BST-1', lines:['50 W RMS · 4Ω','Chassis bass shaker'],
+    name:'Dayton Audio BST-1', model:'50W RMS, 4Ω tactile transducer',
+    blurb:'Bass shaker bolted to the machine frame. It moves the chassis; it is not a loudspeaker for the room.',
+    specs:['50 W RMS, 4Ω','14–16 AWG from the Fosi left channel','Mounted to the cash-machine chassis'],
+    notes:'Left channel + and − only.',
+    caution:'50 W RMS, 4Ω. Do not feed it a bridged amp channel.'
+  },
+  UK_Mains_230V: {
+    sub:'F', x:24, y:1040, w:198, h:78,
+    kicker:'SOURCE', title:'UK Mains 230V', lines:['Type G socket · 50 Hz','Feeds every mains load'],
+    name:'UK Mains Supply (Type G, 230V 50Hz)', model:'Single-phase AC mains',
+    blurb:'The wall supply. Every mains-powered unit in the machine connects to it directly or through its own PSU.',
+    specs:['230V 50Hz AC, UK Type G socket','Feeds the Main PC, Beetronics adapter, Mean Well LPV-150-24, 24V dispenser PSU, 5V stepper PSU, Fosi 32V PSU, and Genelec 8010A'],
+    notes:'Mains wiring is shown as the schematic route only. Installation must follow local electrical rules and be done by a qualified electrician.'
+  },
+  Main_PC: {
+    sub:'A', x:24, y:710, w:198, h:150,
+    kicker:'HOST', title:'Windows 11 PC', lines:['Intel Core i9 · RTX 4080','850 W PSU · 230V feed','Localhost services only'],
+    name:'Main Central PC (Windows 11)', model:'Intel i9 · NVIDIA RTX 4080 · 850 W PSU',
+    blurb:'Runs the HTML Frontend and the Python controller. Its mains feed also supplies 5V USB bus power to the Mega, the Scarlett 2i2, and the ToF sensor.',
+    specs:['Intel Core i9, NVIDIA RTX 4080','850 W PSU, ~200 W typical / 600 W peak','USB bus power to Mega, Scarlett 2i2, ToF sensor'],
+    notes:'The USB bus power links are described in the V3 CSV but not drawn as separate wires.'
+  },
+  TMC2209_5V_PSU: {
+    sub:'D', x:898, y:790, w:190, h:110,
+    kicker:'POWER', title:'5V Stepper PSU', lines:['Mains → 5V DC','2–3 A (10–15 W)'],
+    name:'5V DC Supply for TMC2209 Driver', model:'5V DC, 2–3 A',
+    blurb:'Dedicated 5V supply for the stepper driver. It replaces the 24V aux rail on the driver.',
+    specs:['Mains 230V AC input','5V DC output, up to 2–3 A (10–15 W)','Common GND bonded to Arduino Mega GND'],
+    notes:'Driver motor-supply voltage (VM) must stay at or above 4.75 V under load.',
+    caution:'Verify VM ≥ 4.75 V under load. Low voltage limits stepper torque and speed.'
+  }
+};
+
+/* Canvas height. The mains band at the bottom extends the original 980-unit sheet. */
+const VIEW_H = 1140;
+
+/*
+  Routing channels inside the 1600×1140 viewBox:
+  - Top bus y=18 carries USB audio over the enclosures.
+  - Left bus x=308/320/334/346 sits between the PC (ends x=296) and column two (starts x=356).
+  - Mid bus y=516 (I2C) and y=536 (STEP/DIR) sits in the gap between y=500 and y=548.
+  - 24V aux to the stepper travels at y=788, under the ToF card and beside the driver.
+*/
+const BUS = {
+  audio:308, mega:320, plastic:334, metal:346,   // Python → hardware verticals
+  top:18, htmlTop:30, gapUsb:1080, gapHtml:1092,  // audio over the top of the PC and into the Scarlett
+  wsX:240,                                        // HTML ↔ Python WebSocket runs down the PC's right channel
+  i2c:516, step:536, i2cX:834,
+  // Mains band (bottom, y 990–1126). One horizontal bus with a drop to each mains load.
+  mainsL:17,        // left-hand riser to the Beetronics adapter
+  mainsBusY:1079,   // bus at the mid-height of the UK mains block
+  mainsAuxX:711,    // drop to the 24V dispenser PSU (under C)
+  mainsMwX:880,     // drop to the Mean Well (left of the 5V PSU)
+  mainsPsuX:993,    // drop to the 5V stepper PSU
+  mainsFosiX:1470,  // riser to the Fosi amp (right of the driver)
+  mainsGenX:1565    // riser to the Genelec (right edge of E)
+};
+
+const NS = 'http://www.w3.org/2000/svg';
+const diagram = document.getElementById('diagram');
+const wrap = document.getElementById('canvas-wrap');
+let viewport;
+let signalDot;
+let WIRES = [];
+
+const state = {
+  actions: [],
+  currentAction: null,
+  currentStep: -1,
+  playing: false,
+  loop: false,
+  speed: 1,
+  fileLabel: 'Embedded example',
+  actorId: null,
+  editorIndex: 0,
+  view: { x:0, y:0, scale:1 },
+  suspendLook: false,
+  forceActionLook: false
+};
+const play = { token:0, raf:0, timer:0, t:0 };
+let badgeLocal = null;
+
+function svgEl(name, attrs, parent) {
+  const node = document.createElementNS(NS, name);
+  if (attrs) {
+    Object.keys(attrs).forEach(k => {
+      if (attrs[k] != null) node.setAttribute(k, String(attrs[k]));
+    });
+  }
+  if (parent) parent.appendChild(node);
+  return node;
+}
+function svgText(parent, x, y, text, attrs) {
+  const t = svgEl('text', Object.assign({ x:x, y:y }, attrs || {}), parent);
+  t.textContent = text;
+  return t;
+}
+function sidePoint(actor, side, t) {
+  if (side === 'left') return [actor.x, actor.y + actor.h * t];
+  if (side === 'right') return [actor.x + actor.w, actor.y + actor.h * t];
+  if (side === 'top') return [actor.x + actor.w * t, actor.y];
+  return [actor.x + actor.w * t, actor.y + actor.h];
+}
+function actorName(id) {
+  return (ACTORS[id] && ACTORS[id].name) || id || '—';
+}
+function actorShort(id) {
+  return (ACTORS[id] && ACTORS[id].title) || id || '—';
+}
+function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+function orthoPath(points, radius) {
+  const pts = [];
+  points.forEach(p => {
+    const prev = pts[pts.length - 1];
+    if (!prev || Math.abs(prev[0] - p[0]) > 0.2 || Math.abs(prev[1] - p[1]) > 0.2) pts.push(p);
+  });
+  if (pts.length < 2) return '';
+  const r0 = radius == null ? 8 : radius;
+  let d = 'M ' + pts[0][0] + ' ' + pts[0][1];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const prev = pts[i - 1], curr = pts[i], next = pts[i + 1];
+    const v1x = curr[0] - prev[0], v1y = curr[1] - prev[1];
+    const v2x = next[0] - curr[0], v2y = next[1] - curr[1];
+    const len1 = Math.hypot(v1x, v1y), len2 = Math.hypot(v2x, v2y);
+    const cross = v1x * v2y - v1y * v2x;
+    if (len1 < 0.5 || len2 < 0.5 || Math.abs(cross) < 0.5) {
+      d += ' L ' + curr[0] + ' ' + curr[1];
+      continue;
+    }
+    const r = Math.min(r0, len1 / 2, len2 / 2);
+    const p1x = curr[0] - (v1x / len1) * r;
+    const p1y = curr[1] - (v1y / len1) * r;
+    const p2x = curr[0] + (v2x / len2) * r;
+    const p2y = curr[1] + (v2y / len2) * r;
+    d += ' L ' + p1x + ' ' + p1y + ' Q ' + curr[0] + ' ' + curr[1] + ' ' + p2x + ' ' + p2y;
+  }
+  const last = pts[pts.length - 1];
+  d += ' L ' + last[0] + ' ' + last[1];
+  return d;
+}
+
+function parseCSV(text) {
+  const src = String(text).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); field = ''; rows.push(row); row = []; }
+    else field += c;
+  }
+  if (inQuotes) throw new Error('CSV has an unclosed quote.');
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  const kept = rows.filter(r => r.some(cell => String(cell).trim() !== ''));
+  if (!kept.length) throw new Error('CSV is empty.');
+  const header = kept[0].map(h => h.trim());
+  const missing = REQUIRED.filter(col => header.indexOf(col) === -1);
+  if (missing.length) throw new Error('CSV is missing column(s): ' + missing.join(', '));
+  return kept.slice(1).map((r, idx) => {
+    const obj = {};
+    header.forEach((h, i) => { obj[h] = (r[i] == null ? '' : String(r[i])).trim(); });
+    const n = Number(obj.Step);
+    obj.Step = Number.isFinite(n) ? n : idx + 1;
+    return obj;
+  });
+}
+function csvEscape(value) {
+  const s = value == null ? '' : String(value);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function flattenActions(actions) {
+  const rows = [];
+  actions.forEach(action => {
+    action.steps.forEach((step, i) => {
+      rows.push({
+        Action_Name: action.name,
+        Step: i + 1,
+        From_Actor: step.From_Actor,
+        To_Actor: step.To_Actor,
+        Connection_Type: step.Connection_Type,
+        Process_Title: step.Process_Title,
+        Process_Description: step.Process_Description,
+        Payload_Or_Signal: step.Payload_Or_Signal
+      });
+    });
+  });
+  return rows;
+}
+function serializeCSV(actions) {
+  const lines = [REQUIRED.join(',')];
+  flattenActions(actions).forEach(r => {
+    lines.push(REQUIRED.map(h => csvEscape(r[h])).join(','));
+  });
+  return lines.join('\n') + '\n';
+}
+function groupActions(rows) {
+  const order = [];
+  const map = new Map();
+  rows.forEach(r => {
+    const name = r.Action_Name || 'Untitled';
+    if (!map.has(name)) { map.set(name, []); order.push(name); }
+    map.get(name).push(Object.assign({}, r, { Action_Name: name }));
+  });
+  return order.map(name => ({
+    name: name,
+    steps: map.get(name).slice().sort((a, b) => a.Step - b.Step)
+  }));
+}
+
+function buildWires() {
+  const P = (id, side, t) => sidePoint(ACTORS[id], side, t);
+  const list = [];
+  const pyAudio = P('Python_Controller', 'right', 0.24);
+  const pyMega = P('Python_Controller', 'right', 0.43);
+  const pyPlastic = P('Python_Controller', 'right', 0.62);
+  const pyMetal = P('Python_Controller', 'right', 0.81);
+  const htmlWsOut = P('HTML_Frontend', 'right', 0.5);
+  const htmlAudOut = P('HTML_Frontend', 'right', 0.25);
+  const pyIn = P('Python_Controller', 'top', 0.5);
+  const focusUsbIn = P('Focusrite_Scarlett', 'left', 0.3);
+  const focusHtmlIn = P('Focusrite_Scarlett', 'left', 0.75);
+  const focusOutR = P('Focusrite_Scarlett', 'right', 0.5);
+  const genIn = P('Genelec_8010A', 'left', 0.5);
+  const hdmiFrom = P('HTML_Frontend', 'bottom', 0.3);
+  const hdmiTo = P('Beetronics_22HB9M', 'top', 0.3);
+  const touchFrom = P('Beetronics_22HB9M', 'top', 0.7);
+  const touchTo = P('HTML_Frontend', 'bottom', 0.7);
+  const megaIn = P('Arduino_Mega', 'left', 0.48);
+  const plasticIn = P('TCD180M_Plastic', 'left', 0.42);
+  const metalIn = P('TCD180M_Metal', 'left', 0.42);
+  const neoA = [ACTORS.Arduino_Mega.x + ACTORS.Arduino_Mega.w, 156];
+  const neoB = [ACTORS.WS2814_LEDs.x, 156];
+  const ledPwr = P('WS2814_LEDs', 'bottom', 0.5);
+  const vplus = P('MeanWell_24V_PSU', 'top', 0.5);
+  const pwrMid = (ledPwr[1] + vplus[1]) / 2;
+  const gndPort = P('Arduino_Mega', 'bottom', 0.9);
+  const vminus = P('MeanWell_24V_PSU', 'left', 0.42);
+  const i2cFrom = P('ToF_Sensor', 'left', 0.5);
+  const i2cTo = P('Arduino_Mega', 'bottom', 0.34);
+  const stepFrom = P('Arduino_Mega', 'bottom', 0.66);
+  const stepTo = P('TMC2209_Driver', 'top', 0.5);
+  const coilFrom = P('TMC2209_Driver', 'bottom', 0.5);
+  const coilTo = P('Stepper_Motor', 'top', 0.5);
+  const lineFrom = P('Focusrite_Scarlett', 'bottom', 0.5);
+  const lineTo = P('Fosi_V3_Amp', 'top', 0.5);
+  const spkFrom = P('Fosi_V3_Amp', 'bottom', 0.5);
+  const spkTo = P('Dayton_BST1', 'top', 0.5);
+  const auxPlastic = P('Aux_24V_PSU', 'left', 0.12);
+  const plasticPwr = P('TCD180M_Plastic', 'right', 0.78);
+  const gapPlastic = (auxPlastic[0] + plasticPwr[0]) / 2 - 6;
+  const auxMetal = P('Aux_24V_PSU', 'left', 0.7);
+  const metalPwr = P('TCD180M_Metal', 'right', 0.48);
+  const gapMetal = (auxMetal[0] + metalPwr[0]) / 2 + 8;
+  // Mains and 5V stepper supply points.
+  const mainsOut = P('UK_Mains_230V', 'right', 0.5);      // (222, mains bus)
+  const mainsTop = P('UK_Mains_230V', 'top', 0.5);        // (123, top of mains block)
+  const mainsLeft = P('UK_Mains_230V', 'left', 0.5);      // (24, mains bus)
+  const pcBottom = P('Main_PC', 'bottom', 0.5);
+  const beetLeft = P('Beetronics_22HB9M', 'left', 0.5);
+  const mwLeft = P('MeanWell_24V_PSU', 'left', 0.5);
+  const auxBottom = P('Aux_24V_PSU', 'bottom', 0.5);
+  const psu5vBottom = P('TMC2209_5V_PSU', 'bottom', 0.5);
+  const psu5vRight = P('TMC2209_5V_PSU', 'right', 0.2);
+  const drvLeft5v = P('TMC2209_Driver', 'left', 0.8);
+  const fosiRight = P('Fosi_V3_Amp', 'right', 0.5);
+  const genRight = P('Genelec_8010A', 'right', 0.5);
+
+  function add(wire) { list.push(wire); }
+  add({
+    id:'ws', type:'WebSocket_OSC', from:'HTML_Frontend', to:'Python_Controller', bidirectional:true,
+    points:[htmlWsOut, [BUS.wsX, htmlWsOut[1]], [BUS.wsX, 395], [pyIn[0], 395], pyIn],
+    labels:[{ text:'WS / OSC', x:(BUS.wsX + pyIn[0]) / 2, y:395 }]
+  });
+  add({
+    id:'usb-audio', type:'USB_Audio', from:'Python_Controller', to:'Focusrite_Scarlett',
+    points:[pyAudio, [BUS.audio, pyAudio[1]], [BUS.audio, BUS.top], [BUS.gapUsb, BUS.top], [BUS.gapUsb, focusUsbIn[1]], focusUsbIn],
+    labels:[
+      { text:'USB Audio', x:226, y: pyAudio[1] - 16, anchor:'start' },
+      { text:'WASAPI shared', x:700, y:BUS.top }
+    ]
+  });
+  add({
+    id:'html-audio', type:'USB_Audio', from:'HTML_Frontend', to:'Focusrite_Scarlett',
+    points:[htmlAudOut, [252, htmlAudOut[1]], [252, BUS.htmlTop], [BUS.gapHtml, BUS.htmlTop], [BUS.gapHtml, focusHtmlIn[1]], focusHtmlIn],
+    labels:[{ text:'Web Audio · Ch2', x:600, y:BUS.htmlTop }]
+  });
+  add({
+    id:'hdmi', type:'HDMI_DisplayPort', from:'HTML_Frontend', to:'Beetronics_22HB9M',
+    points:[hdmiFrom, hdmiTo],
+    labels:[{ text:'HDMI / DP', x:hdmiFrom[0], y:(hdmiFrom[1] + hdmiTo[1]) / 2 - 8 }]
+  });
+  add({
+    id:'touch', type:'USB_HID_Touch', from:'Beetronics_22HB9M', to:'HTML_Frontend',
+    points:[touchFrom, touchTo],
+    labels:[{ text:'USB Touch', x:touchFrom[0], y:(touchFrom[1] + touchTo[1]) / 2 + 8 }]
+  });
+  add({
+    id:'genelec', type:'Analog_Line_Audio', from:'Focusrite_Scarlett', to:'Genelec_8010A',
+    points:[focusOutR, genIn],
+    labels:[{ text:'XLR', x:(focusOutR[0] + genIn[0]) / 2, y:focusOutR[1] - 14 }]
+  });
+  add({
+    id:'usb-mega', type:'USB_Serial', from:'Python_Controller', to:'Arduino_Mega', bidirectional:true,
+    points:[pyMega, [BUS.mega, pyMega[1]], [BUS.mega, megaIn[1]], megaIn],
+    labels:[{ text:'USB Serial', x:226, y: pyMega[1] - 16, anchor:'start' }]
+  });
+  add({
+    id:'usb-plastic', type:'USB_Serial', from:'Python_Controller', to:'TCD180M_Plastic', bidirectional:true,
+    points:[pyPlastic, [BUS.plastic, pyPlastic[1]], [BUS.plastic, plasticIn[1]], plasticIn],
+    labels:[{ text:'USB Serial', x:226, y: pyPlastic[1] - 16, anchor:'start' }]
+  });
+  add({
+    id:'usb-metal', type:'USB_Serial', from:'Python_Controller', to:'TCD180M_Metal', bidirectional:true,
+    points:[pyMetal, [BUS.metal, pyMetal[1]], [BUS.metal, metalIn[1]], metalIn],
+    labels:[{ text:'USB Serial', x:226, y: pyMetal[1] - 16, anchor:'start' }]
+  });
+  add({
+    id:'neopixel', type:'NeoPixel_1Wire', from:'Arduino_Mega', to:'WS2814_LEDs',
+    points:[neoA, neoB],
+    labels:[{ text:'1-Wire', x:(neoA[0] + neoB[0]) / 2, y:neoA[1] }]
+  });
+  add({
+    id:'pwr-led', type:'Power_24V_DC', from:'MeanWell_24V_PSU', to:'WS2814_LEDs', power:true,
+    points:[vplus, [vplus[0], pwrMid], [ledPwr[0], pwrMid], ledPwr],
+    labels:[{ text:'24V DC', x:(vplus[0] + ledPwr[0]) / 2, y: pwrMid - 14 }]
+  });
+  add({
+    id:'gnd', type:'Common_GND', from:'MeanWell_24V_PSU', to:'Arduino_Mega', power:true, arrow:'none',
+    points:[vminus, [gndPort[0], vminus[1]], gndPort],
+    labels:[{ text:'Common GND', x:(vminus[0] + gndPort[0]) / 2, y: vminus[1] - 14 }]
+  });
+  add({
+    id:'i2c', type:'I2C_Bus', from:'ToF_Sensor', to:'Arduino_Mega', bidirectional:true,
+    points:[i2cFrom, [BUS.i2cX, i2cFrom[1]], [BUS.i2cX, BUS.i2c], [i2cTo[0], BUS.i2c], i2cTo],
+    labels:[{ text:'I2C', x:700, y:BUS.i2c }]
+  });
+  add({
+    id:'step', type:'Digital_STEP_DIR', from:'Arduino_Mega', to:'TMC2209_Driver',
+    points:[stepFrom, [stepFrom[0], BUS.step], [stepTo[0], BUS.step], stepTo],
+    labels:[{ text:'STEP / DIR', x:1020, y:BUS.step }]
+  });
+  add({
+    id:'coils', type:'Motor_Coils', from:'TMC2209_Driver', to:'Stepper_Motor',
+    points:[coilFrom, coilTo],
+    labels:[{ text:'Coils', x: coilFrom[0] + 46, y:(coilFrom[1] + coilTo[1]) / 2 }]
+  });
+  add({
+    id:'line', type:'Analog_Line_Audio', from:'Focusrite_Scarlett', to:'Fosi_V3_Amp',
+    points:[lineFrom, lineTo],
+    labels:[{ text:'Line L', x: lineFrom[0] + 44, y:(lineFrom[1] + lineTo[1]) / 2 }]
+  });
+  add({
+    id:'spk', type:'Speaker_High_Power', from:'Fosi_V3_Amp', to:'Dayton_BST1',
+    points:[spkFrom, spkTo],
+    labels:[{ text:'Spk ±', x: spkFrom[0] + 42, y:(spkFrom[1] + spkTo[1]) / 2 }]
+  });
+  add({
+    id:'pwr-plastic', type:'Power_24V_DC', from:'Aux_24V_PSU', to:'TCD180M_Plastic', power:true,
+    points:[auxPlastic, [gapPlastic, auxPlastic[1]], [gapPlastic, plasticPwr[1]], plasticPwr],
+    labels:[{ text:'24V', x: gapPlastic, y:(auxPlastic[1] + plasticPwr[1]) / 2 }]
+  });
+  add({
+    id:'pwr-metal', type:'Power_24V_DC', from:'Aux_24V_PSU', to:'TCD180M_Metal', power:true,
+    points:[auxMetal, [gapMetal, auxMetal[1]], [gapMetal, metalPwr[1]], metalPwr],
+    labels:[{ text:'24V', x:(ACTORS.TCD180M_Metal.x + ACTORS.TCD180M_Metal.w + ACTORS.Aux_24V_PSU.x) / 2, y:(auxMetal[1] + metalPwr[1]) / 2 }]
+  });
+  // 5V supply to the stepper driver (replaces the old 24V aux feed).
+  add({
+    id:'pwr-5v', type:'Power_5V_DC', from:'TMC2209_5V_PSU', to:'TMC2209_Driver', power:true,
+    points:[psu5vRight, [1155, psu5vRight[1]], [1155, drvLeft5v[1]], drvLeft5v],
+    labels:[{ text:'5V DC', x:1155, y:(psu5vRight[1] + drvLeft5v[1]) / 2 }]
+  });
+
+  // Mains 230V AC. Every wire starts at the UK mains block and ends at one load.
+  const busY = BUS.mainsBusY;
+  add({
+    id:'mains-pc', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'Main_PC', power:true,
+    points:[mainsTop, pcBottom],
+    labels:[{ text:'230V AC', x:123, y:950 }]
+  });
+  add({
+    id:'mains-beet', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'Beetronics_22HB9M', power:true,
+    points:[mainsLeft, [BUS.mainsL, busY], [BUS.mainsL, beetLeft[1]], beetLeft]
+  });
+  add({
+    id:'mains-mw', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'MeanWell_24V_PSU', power:true,
+    points:[mainsOut, [BUS.mainsMwX, busY], [BUS.mainsMwX, mwLeft[1]], mwLeft]
+  });
+  add({
+    id:'mains-aux', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'Aux_24V_PSU', power:true,
+    points:[mainsOut, [BUS.mainsAuxX, busY], auxBottom]
+  });
+  add({
+    id:'mains-5v', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'TMC2209_5V_PSU', power:true,
+    points:[mainsOut, [BUS.mainsPsuX, busY], psu5vBottom]
+  });
+  add({
+    id:'mains-fosi', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'Fosi_V3_Amp', power:true,
+    points:[mainsOut, [BUS.mainsFosiX, busY], [BUS.mainsFosiX, fosiRight[1]], fosiRight]
+  });
+  add({
+    id:'mains-gen', type:'Mains_230V_AC', from:'UK_Mains_230V', to:'Genelec_8010A', power:true,
+    points:[mainsOut, [BUS.mainsGenX, busY], [BUS.mainsGenX, genRight[1]], genRight]
+  });
+  return list;
+}
+
+function findWire(from, to, type) {
+  return WIRES.find(w => w.type === type && (
+    (w.from === from && w.to === to) ||
+    (w.bidirectional && w.from === to && w.to === from)
+  ));
+}
+
+function badgeWidth(text) {
+  return Math.max(28, Math.round(text.length * 5.45 + 14));
+}
+function drawBadge(parent, label, color) {
+  const w = badgeWidth(label.text);
+  const h = 16;
+  const x = label.anchor === 'start' ? label.x : label.x - w / 2;
+  const y = label.y - h / 2;
+  const g = svgEl('g', { class:'wire-badge', transform:'translate(' + x + ' ' + y + ')' }, parent);
+  svgEl('rect', { class:'badge-bg', width:w, height:h, rx:4, stroke:color }, g);
+  svgText(g, w / 2, h / 2, label.text, {
+    class:'badge-text', 'text-anchor':'middle', 'dominant-baseline':'central'
+  });
+}
+
+function drawDiagram() {
+  diagram.replaceChildren();
+  const defs = svgEl('defs', null, diagram);
+  svgEl('pattern', { id:'sheet', width:28, height:28, patternUnits:'userSpaceOnUse' }, defs);
+  const sheet = document.getElementById('sheet');
+  svgEl('circle', { cx:0.7, cy:0.7, r:0.7, fill:'#1e293b' }, sheet);
+  svgEl('filter', { id:'glow', x:'-40%', y:'-40%', width:'180%', height:'180%' }, defs);
+  const glow = document.getElementById('glow');
+  svgEl('feGaussianBlur', { stdDeviation:'2.2', result:'b' }, glow);
+  const merge = svgEl('feMerge', null, glow);
+  svgEl('feMergeNode', { in:'b' }, merge);
+  svgEl('feMergeNode', { in:'SourceGraphic' }, merge);
+  svgEl('filter', { id:'nodeglow', x:'-30%', y:'-30%', width:'160%', height:'160%' }, defs);
+  svgEl('feDropShadow', { dx:'0', dy:'0', stdDeviation:'2.4', 'flood-color':'#fbbf24', 'flood-opacity':'0.9' }, document.getElementById('nodeglow'));
+  Object.keys(TYPES).forEach(id => {
+    const t = TYPES[id];
+    const marker = svgEl('marker', {
+      id:'arrow-' + id, viewBox:'0 0 10 10', refX:'9', refY:'5',
+      markerWidth: id === 'Speaker_High_Power' ? 11 : 8,
+      markerHeight: id === 'Speaker_High_Power' ? 11 : 8,
+      orient:'auto-start-reverse', markerUnits:'userSpaceOnUse'
+    }, defs);
+    svgEl('path', { d:'M 0 1 L 10 5 L 0 9 z', fill:t.color }, marker);
+  });
+
+  viewport = svgEl('g', { id:'viewport' }, diagram);
+  svgEl('rect', { class:'canvas-bg', x:0, y:0, width:1600, height:VIEW_H }, viewport);
+  svgEl('rect', { class:'sheet-grid', x:0, y:0, width:1600, height:VIEW_H, fill:'url(#sheet)' }, viewport);
+
+  SUBSYSTEMS.forEach(s => {
+    const g = svgEl('g', { class:'sub-visual' }, viewport);
+    g.setAttribute('pointer-events', 'none');
+    svgEl('rect', { class:'sub-box', x:s.x, y:s.y, width:s.w, height:s.h, rx:14, stroke:s.accent }, g);
+    const tx = s.tx != null ? s.tx : s.x + 14;
+    svgText(g, tx, s.y + 22, s.id + '   ·   ' + s.name, { class:'sub-title' });
+    svgText(g, tx, s.y + 40, s.line, { class:'sub-line' });
+  });
+
+  // The PC host box is now the Main_PC actor, drawn with the other nodes below.
+  Object.keys(ACTORS).forEach(id => {
+    const a = ACTORS[id];
+    const accent = SUBSYSTEMS.find(s => s.id === a.sub).accent;
+    const g = svgEl('g', { class:'node', tabindex:'0', role:'button' }, viewport);
+    g.setAttribute('data-actor', id);
+    g.setAttribute('aria-label', a.name);
+    const tip = svgEl('title', null, g);
+    tip.textContent = a.name + ' (' + id + ')';
+    svgEl('rect', {
+      class:'node-bg', x:a.x, y:a.y, width:a.w, height:a.h, rx:10, stroke:accent
+    }, g);
+    svgText(g, a.x + 12, a.y + 18, a.kicker, { class:'node-kicker', fill:accent });
+    svgText(g, a.x + 12, a.y + 40, a.title, { class:'node-title' });
+    a.lines.forEach((line, i) => {
+      svgText(g, a.x + 12, a.y + 60 + i * 16, line, { class:'node-line' });
+    });
+  });
+
+  WIRES = buildWires();
+  WIRES.forEach(wire => {
+    const style = TYPES[wire.type];
+    const g = svgEl('g', { class: 'wire-group' + (wire.power ? ' power-rail' : '') }, viewport);
+    g.setAttribute('data-id', wire.id);
+    g.setAttribute('pointer-events', 'none');
+    const arrows = wire.arrow || (wire.bidirectional ? 'both' : 'end');
+    const path = svgEl('path', {
+      class:'wire',
+      d: orthoPath(wire.points, 8),
+      stroke: style.color,
+      'stroke-width': style.width,
+      'stroke-dasharray': style.dash || null,
+      'marker-end': arrows === 'none' ? null : 'url(#arrow-' + wire.type + ')',
+      'marker-start': arrows === 'both' ? 'url(#arrow-' + wire.type + ')' : null
+    }, g);
+    wire.pathEl = path;
+    (wire.labels || []).forEach(label => drawBadge(g, label, style.color));
+    [wire.points[0], wire.points[wire.points.length - 1]].forEach(pt => {
+      svgEl('circle', { class:'port', cx:pt[0], cy:pt[1], r:3.2, fill:style.color }, g);
+    });
+  });
+
+  signalDot = svgEl('circle', {
+    id:'signal-dot', r:6.5, fill:'#ffffff', stroke:'#ffffff', 'stroke-width':2.5,
+    filter:'url(#glow)', visibility:'hidden', 'pointer-events':'none'
+  }, viewport);
+}
+
+function currentAction() {
+  if (state.currentAction == null) return null;
+  return state.actions[state.currentAction] || null;
+}
+function currentStep() {
+  const action = currentAction();
+  if (!action || state.currentStep < 0) return null;
+  return action.steps[state.currentStep] || null;
+}
+function halt() {
+  play.token++;
+  cancelAnimationFrame(play.raf);
+  clearTimeout(play.timer);
+}
+function hideSignal() {
+  if (signalDot) signalDot.setAttribute('visibility', 'hidden');
+  document.getElementById('payload-badge').hidden = true;
+  badgeLocal = null;
+}
+function layoutBadge() {
+  const badge = document.getElementById('payload-badge');
+  if (!badgeLocal || !viewport) { badge.hidden = true; return; }
+  const pt = diagram.createSVGPoint();
+  pt.x = badgeLocal.x;
+  pt.y = badgeLocal.y;
+  const ctm = viewport.getScreenCTM();
+  if (!ctm) return;
+  const screen = pt.matrixTransform(ctm);
+  const box = wrap.getBoundingClientRect();
+  badge.hidden = false;
+  badge.style.left = (screen.x - box.left) + 'px';
+  badge.style.top = (screen.y - box.top) + 'px';
+}
+function placeSignal(wire, step, t) {
+  if (!step) { hideSignal(); return; }
+  const style = TYPES[step.Connection_Type] || { color:'#e2e8f0' };
+  let x;
+  let y;
+  if (wire && wire.pathEl) {
+    const len = wire.pathEl.getTotalLength();
+    const forward = wire.from === step.From_Actor;
+    const u = clamp(forward ? t : 1 - t, 0, 1);
+    const p = wire.pathEl.getPointAtLength(u * len);
+    x = p.x; y = p.y;
+    signalDot.setAttribute('cx', x);
+    signalDot.setAttribute('cy', y);
+    signalDot.setAttribute('stroke', style.color);
+    signalDot.setAttribute('visibility', 'visible');
+  } else {
+    const actor = ACTORS[step.From_Actor];
+    x = actor ? actor.x + actor.w / 2 : 800;
+    y = actor ? actor.y + actor.h / 2 : 480;
+    signalDot.setAttribute('visibility', 'hidden');
+  }
+  document.getElementById('badge-title').textContent = step.Process_Title || step.Connection_Type || '';
+  document.getElementById('badge-payload').textContent = step.Payload_Or_Signal || '';
+  const badge = document.getElementById('payload-badge');
+  badge.style.borderColor = style.color;
+  badgeLocal = { x:x, y:y };
+  layoutBadge();
+}
+function applyVisuals() {
+  const action = state.suspendLook ? null : currentAction();
+  const step = action ? currentStep() : null;
+  const show = !!(action && (state.currentStep >= 0 || state.forceActionLook));
+  diagram.classList.toggle('simulating', show);
+  const actors = new Set();
+  const wires = new Set();
+  if (show) {
+    action.steps.forEach(s => {
+      actors.add(s.From_Actor);
+      actors.add(s.To_Actor);
+      const w = findWire(s.From_Actor, s.To_Actor, s.Connection_Type);
+      if (w) wires.add(w.id);
+    });
+  }
+  diagram.querySelectorAll('.node').forEach(node => {
+    const id = node.getAttribute('data-actor');
+    node.classList.toggle('is-dim', show && !actors.has(id));
+    node.classList.toggle('is-current', !!(step && (id === step.From_Actor || id === step.To_Actor)));
+  });
+  diagram.querySelectorAll('.wire-group').forEach(g => {
+    const id = g.getAttribute('data-id');
+    g.classList.toggle('is-dim', show && !wires.has(id));
+    let hot = false;
+    if (step) {
+      const w = findWire(step.From_Actor, step.To_Actor, step.Connection_Type);
+      hot = !!(w && w.id === id);
+    }
+    g.classList.toggle('is-hot', hot);
+  });
+}
+function applyView() {
+  if (!viewport) return;
+  viewport.setAttribute('transform', 'translate(' + state.view.x + ' ' + state.view.y + ') scale(' + state.view.scale + ')');
+  document.getElementById('zoom-label').textContent = Math.round(state.view.scale * 100) + '%';
+  layoutBadge();
+}
+function clientToViewBox(clientX, clientY) {
+  const pt = diagram.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const ctm = diagram.getScreenCTM();
+  if (!ctm) return { x:0, y:0 };
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x:p.x, y:p.y };
+}
+function zoomAt(clientX, clientY, next) {
+  const scale = clamp(next, 0.35, 4.5);
+  const parent = clientToViewBox(clientX, clientY);
+  const localX = (parent.x - state.view.x) / state.view.scale;
+  const localY = (parent.y - state.view.y) / state.view.scale;
+  state.view.scale = scale;
+  state.view.x = parent.x - localX * scale;
+  state.view.y = parent.y - localY * scale;
+  applyView();
+}
+function fitView() {
+  state.view = { x:0, y:0, scale:1 };
+  applyView();
+}
+
+function showToast(message, kind) {
+  const holder = document.getElementById('toasts');
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (kind === 'bad' ? ' bad' : '');
+  toast.textContent = message;
+  toast.addEventListener('click', () => toast.remove());
+  holder.appendChild(toast);
+  setTimeout(() => toast.remove(), 7000);
+}
+
+function renderActionList() {
+  const list = document.getElementById('action-list');
+  list.replaceChildren();
+  if (!state.actions.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No actions loaded.';
+    list.appendChild(p);
+    return;
+  }
+  state.actions.forEach((action, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'action-btn' + (index === state.currentAction ? ' on' : '');
+    btn.dataset.actionIndex = String(index);
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = action.name;
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = action.steps.length + (action.steps.length === 1 ? ' step' : ' steps');
+    btn.appendChild(name);
+    btn.appendChild(meta);
+    list.appendChild(btn);
+  });
+}
+function renderNow() {
+  const now = document.getElementById('now');
+  now.replaceChildren();
+  const action = currentAction();
+  const step = currentStep();
+  if (!action) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.style.padding = '4px 0 0';
+    p.textContent = 'Select an action to inspect its steps. Click any block on the diagram for its hardware notes.';
+    now.appendChild(p);
+    return;
+  }
+  if (!step) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = action.name + ' is selected. Press Play or choose a step.';
+    now.appendChild(p);
+    return;
+  }
+  const kicker = document.createElement('div');
+  kicker.className = 'now-kicker';
+  kicker.textContent = 'Step ' + (state.currentStep + 1) + ' of ' + action.steps.length;
+  const title = document.createElement('div');
+  title.className = 'now-title';
+  title.textContent = step.Process_Title || 'Untitled step';
+  const path = document.createElement('div');
+  path.className = 'now-path';
+  path.appendChild(document.createTextNode(actorShort(step.From_Actor) + ' → ' + actorShort(step.To_Actor)));
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  const style = TYPES[step.Connection_Type];
+  chip.textContent = style ? style.name : step.Connection_Type;
+  if (style) { chip.style.color = style.color; chip.style.borderColor = style.color; }
+  path.appendChild(chip);
+  const desc = document.createElement('p');
+  desc.className = 'now-desc';
+  desc.textContent = step.Process_Description || '';
+  const pay = document.createElement('div');
+  pay.className = 'now-pay';
+  pay.textContent = step.Payload_Or_Signal || '—';
+  now.append(kicker, title, path, desc, pay);
+}
+function renderSteps() {
+  const host = document.getElementById('steps');
+  host.replaceChildren();
+  const action = currentAction();
+  if (!action) return;
+  action.steps.forEach((step, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'step-row' + (index === state.currentStep ? ' current' : '');
+    btn.dataset.stepIndex = String(index);
+    const ttl = document.createElement('span');
+    ttl.className = 'ttl';
+    ttl.textContent = (index + 1) + '.  ' + (step.Process_Title || 'Untitled step');
+    const sub = document.createElement('span');
+    sub.className = 'sub';
+    sub.textContent = actorShort(step.From_Actor) + ' → ' + actorShort(step.To_Actor);
+    btn.append(ttl, sub);
+    host.appendChild(btn);
+  });
+  const current = host.querySelector('.step-row.current');
+  if (current) current.scrollIntoView({ block:'nearest' });
+}
+function renderLegend() {
+  const host = document.getElementById('legend');
+  if (host.childElementCount) return;
+  Object.keys(TYPES).forEach(id => {
+    const t = TYPES[id];
+    const row = document.createElement('div');
+    row.className = 'legend-row';
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    const border = t.style === 'dashed' ? 'dashed' : (t.style === 'dotted' ? 'dotted' : 'solid');
+    sw.style.borderTop = Math.max(2, Math.min(4, t.width)) + 'px ' + border + ' ' + t.color;
+    const copy = document.createElement('div');
+    const name = document.createElement('b');
+    name.textContent = t.name;
+    const note = document.createElement('span');
+    note.textContent = t.note;
+    copy.append(name, note);
+    row.append(sw, copy);
+    host.appendChild(row);
+  });
+}
+function renderActor() {
+  const host = document.getElementById('actor-slot');
+  host.replaceChildren();
+  const actor = ACTORS[state.actorId];
+  if (!actor) return;
+  const card = document.createElement('article');
+  card.className = 'actor-card';
+  const top = document.createElement('div');
+  top.className = 'actor-top';
+  const idLine = document.createElement('div');
+  const kicker = document.createElement('div');
+  kicker.className = 'now-kicker';
+  const sub = SUBSYSTEMS.find(s => s.id === actor.sub);
+  kicker.textContent = sub.id + ' · ' + sub.name;
+  const h = document.createElement('h2');
+  h.textContent = actor.name;
+  const id = document.createElement('div');
+  id.className = 'actor-id';
+  id.textContent = state.actorId;
+  idLine.append(kicker, h, id);
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.textContent = 'Close';
+  close.addEventListener('click', () => { state.actorId = null; renderActor(); });
+  top.append(idLine, close);
+  const blurb = document.createElement('p');
+  blurb.textContent = actor.blurb;
+  card.append(top, blurb);
+  function section(title, nodes) {
+    const h3 = document.createElement('h3');
+    h3.textContent = title;
+    card.appendChild(h3);
+    nodes.forEach(n => card.appendChild(n));
+  }
+  const specList = document.createElement('ul');
+  actor.specs.forEach(text => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    specList.appendChild(li);
+  });
+  if (actor.caution) {
+    const li = document.createElement('li');
+    li.textContent = actor.caution;
+    specList.appendChild(li);
+  }
+  section('Specifications', [specList]);
+  const links = document.createElement('ul');
+  WIRES.filter(w => w.from === state.actorId || w.to === state.actorId).forEach(w => {
+    const li = document.createElement('li');
+    const other = w.from === state.actorId ? w.to : w.from;
+    const arrow = w.bidirectional ? ' ↔ ' : (w.from === state.actorId ? ' → ' : ' ← ');
+    li.textContent = (TYPES[w.type] ? TYPES[w.type].name : w.type) + arrow + actorShort(other);
+    links.appendChild(li);
+  });
+  section('Connections', [links]);
+  const quick = document.createElement('div');
+  quick.className = 'quick';
+  let any = false;
+  state.actions.forEach((action, index) => {
+    const hits = action.steps.some(s => s.From_Actor === state.actorId || s.To_Actor === state.actorId);
+    if (!hits) return;
+    any = true;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = action.name;
+    btn.addEventListener('click', () => selectAction(index, true));
+    quick.appendChild(btn);
+  });
+  if (!any) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No sequenced action names this part. It is infrastructure on the power or ground path.';
+    quick.appendChild(p);
+  }
+  section('Actions', [quick]);
+  const note = document.createElement('p');
+  note.className = 'hint';
+  note.textContent = actor.notes;
+  card.appendChild(note);
+  host.appendChild(card);
+}
+function updateChrome() {
+  const action = currentAction();
+  const stepCount = action ? action.steps.length : 0;
+  const status = document.getElementById('transport-status');
+  if (!action || state.currentStep < 0) status.textContent = 'Full system';
+  else status.textContent = 'Step ' + (state.currentStep + 1) + ' / ' + stepCount + '  ·  ' + action.name;
+  const playing = state.playing;
+  const playBtn = document.getElementById('btn-play');
+  playBtn.textContent = playing ? 'Pause' : 'Play';
+  playBtn.classList.toggle('primary', !!action && !playing);
+  playBtn.disabled = !action;
+  document.getElementById('btn-replay').disabled = !action;
+  document.getElementById('btn-back').disabled = !action;
+  document.getElementById('btn-fwd').disabled = !action;
+  document.getElementById('file-label').textContent = state.fileLabel;
+}
+function renderAll() {
+  renderActionList();
+  renderNow();
+  renderSteps();
+  renderActor();
+  renderLegend();
+  updateChrome();
+}
+
+function runAnimation() {
+  const token = ++play.token;
+  const step = currentStep();
+  applyVisuals();
+  renderNow();
+  renderSteps();
+  updateChrome();
+  if (!step) { state.playing = false; return; }
+  const wire = findWire(step.From_Actor, step.To_Actor, step.Connection_Type);
+  let last = performance.now();
+  const frame = (now) => {
+    if (token !== play.token) return;
+    const dt = now - last;
+    last = now;
+    play.t += dt / (2400 / state.speed);
+    if (play.t >= 1) {
+      play.t = 1;
+      placeSignal(wire, step, 1);
+      play.timer = setTimeout(() => {
+        if (token !== play.token) return;
+        goNext();
+      }, 700 / state.speed);
+      return;
+    }
+    placeSignal(wire, step, play.t);
+    play.raf = requestAnimationFrame(frame);
+  };
+  placeSignal(wire, step, play.t);
+  play.raf = requestAnimationFrame(frame);
+}
+function goNext() {
+  const action = currentAction();
+  if (!action) { state.playing = false; halt(); return; }
+  if (state.currentStep < action.steps.length - 1) {
+    state.currentStep += 1;
+    play.t = 0;
+    runAnimation();
+  } else if (state.loop) {
+    state.currentStep = 0;
+    play.t = 0;
+    runAnimation();
+  } else {
+    state.playing = false;
+    play.t = 1;
+    applyVisuals();
+    updateChrome();
+    renderNow();
+    renderSteps();
+  }
+}
+function selectAction(index, autoplay) {
+  halt();
+  state.currentAction = index;
+  state.currentStep = 0;
+  play.t = 0;
+  state.playing = !!autoplay;
+  renderActionList();
+  if (autoplay) runAnimation();
+  else {
+    play.t = 1;
+    const step = currentStep();
+    applyVisuals();
+    placeSignal(step && findWire(step.From_Actor, step.To_Actor, step.Connection_Type), step, 1);
+    renderNow();
+    renderSteps();
+    updateChrome();
+  }
+}
+function togglePlay() {
+  const action = currentAction();
+  if (!action) return;
+  if (state.playing) {
+    state.playing = false;
+    halt();
+    updateChrome();
+    return;
+  }
+  state.playing = true;
+  if (state.currentStep < 0 || state.currentStep >= action.steps.length) {
+    state.currentStep = 0;
+    play.t = 0;
+  } else if (play.t >= 1) {
+    state.currentStep = state.currentStep >= action.steps.length - 1 ? 0 : state.currentStep + 1;
+    play.t = 0;
+  }
+  runAnimation();
+}
+function stepBy(delta) {
+  const action = currentAction();
+  if (!action) return;
+  halt();
+  state.playing = false;
+  let next = state.currentStep + delta;
+  if (state.currentStep < 0) next = delta > 0 ? 0 : action.steps.length - 1;
+  state.currentStep = clamp(next, 0, action.steps.length - 1);
+  play.t = 1;
+  const step = currentStep();
+  applyVisuals();
+  placeSignal(step && findWire(step.From_Actor, step.To_Actor, step.Connection_Type), step, 1);
+  renderNow();
+  renderSteps();
+  updateChrome();
+  renderActionList();
+}
+function jumpTo(index) {
+  const action = currentAction();
+  if (!action) return;
+  halt();
+  state.playing = false;
+  state.currentStep = index;
+  play.t = 1;
+  const step = currentStep();
+  applyVisuals();
+  placeSignal(step && findWire(step.From_Actor, step.To_Actor, step.Connection_Type), step, 1);
+  renderNow();
+  renderSteps();
+  updateChrome();
+}
+function resetSystem() {
+  halt();
+  state.playing = false;
+  state.currentStep = -1;
+  play.t = 0;
+  hideSignal();
+  applyVisuals();
+  renderNow();
+  renderSteps();
+  updateChrome();
+}
+function openActor(id) {
+  if (!ACTORS[id]) return;
+  state.actorId = id;
+  renderActor();
+  document.getElementById('toggle-right').setAttribute('aria-pressed', 'true');
+  document.body.classList.remove('hide-right');
+}
+
+function loadRows(rows, label, announce) {
+  const warnings = [];
+  rows.forEach(r => {
+    if (!ACTORS[r.From_Actor]) warnings.push('Unknown actor "' + r.From_Actor + '" in "' + r.Action_Name + '" step ' + r.Step + '.');
+    if (!ACTORS[r.To_Actor]) warnings.push('Unknown actor "' + r.To_Actor + '" in "' + r.Action_Name + '" step ' + r.Step + '.');
+    else if (ACTORS[r.From_Actor] && !findWire(r.From_Actor, r.To_Actor, r.Connection_Type)) {
+      warnings.push('No ' + r.Connection_Type + ' wire for ' + r.From_Actor + ' → ' + r.To_Actor + ' (' + r.Action_Name + ' step ' + r.Step + ').');
+    }
+  });
+  halt();
+  state.actions = groupActions(rows);
+  state.fileLabel = label;
+  state.currentAction = null;
+  state.currentStep = -1;
+  state.playing = false;
+  hideSignal();
+  applyVisuals();
+  renderAll();
+  if (announce) showToast('Loaded ' + state.actions.length + ' action(s) from ' + label + '.');
+  warnings.slice(0, 6).forEach(msg => showToast(msg, 'bad'));
+  if (warnings.length > 6) showToast((warnings.length - 6) + ' more warning(s). Check actor ids and connection types.', 'bad');
+}
+function readFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const rows = parseCSV(String(reader.result || ''));
+      if (!rows.length) throw new Error('That CSV has no data rows.');
+      loadRows(rows, file.name, true);
+    } catch (err) {
+      showToast(err.message || 'Could not read that CSV.', 'bad');
+    }
+  };
+  reader.onerror = () => showToast('Could not read that file.', 'bad');
+  reader.readAsText(file);
+}
+function downloadCSV() {
+  const blob = new Blob([serializeCSV(state.actions)], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'cash_machine_actions.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function blankStep(name) {
+  return {
+    Action_Name: name, Step: 1,
+    From_Actor: 'HTML_Frontend', To_Actor: 'Python_Controller', Connection_Type: 'WebSocket_OSC',
+    Process_Title: 'New step', Process_Description: '', Payload_Or_Signal: ''
+  };
+}
+function renumber(action) {
+  action.steps.forEach((step, i) => {
+    step.Step = i + 1;
+    step.Action_Name = action.name;
+  });
+}
+function actorChoices(selected) {
+  const ids = Object.keys(ACTORS);
+  if (selected && !ACTORS[selected]) ids.push(selected);
+  return ids;
+}
+function typeChoices(selected) {
+  const ids = EDIT_TYPES.slice();
+  if (selected && ids.indexOf(selected) === -1) ids.push(selected);
+  return ids;
+}
+function makeSelect(options, value, field) {
+  const select = document.createElement('select');
+  select.dataset.field = field;
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (opt.value === value) o.selected = true;
+    select.appendChild(o);
+  });
+  return select;
+}
+function renderEditor() {
+  const list = document.getElementById('ed-actions');
+  const form = document.getElementById('ed-form');
+  list.replaceChildren();
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.id = 'ed-add-action';
+  add.textContent = 'Add action';
+  list.appendChild(add);
+  state.actions.forEach((action, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = index === state.editorIndex ? 'on' : '';
+    btn.dataset.edAction = String(index);
+    btn.textContent = action.name || 'Untitled';
+    list.appendChild(btn);
+  });
+  form.replaceChildren();
+  const action = state.actions[state.editorIndex];
+  if (!action) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No actions yet. Add one to begin.';
+    form.appendChild(p);
+    return;
+  }
+  const nameField = document.createElement('label');
+  nameField.className = 'field';
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = 'Action name';
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.id = 'ed-name';
+  nameInput.value = action.name;
+  nameInput.spellcheck = false;
+  nameField.append(nameSpan, nameInput);
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'danger';
+  del.id = 'ed-del-action';
+  del.textContent = 'Delete action';
+  form.append(nameField, del);
+  action.steps.forEach((step, index) => {
+    const card = document.createElement('div');
+    card.className = 'step-card';
+    card.dataset.step = String(index);
+    const top = document.createElement('div');
+    top.className = 'step-card-top';
+    const label = document.createElement('strong');
+    label.textContent = 'Step ' + (index + 1);
+    const icons = document.createElement('div');
+    icons.className = 'icon-row';
+    [['↑','up'], ['↓','down'], ['Delete','del']].forEach(pair => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = pair[0];
+      b.dataset[pair[1] === 'del' ? 'delStep' : pair[1]] = String(index);
+      if (pair[1] === 'up') b.disabled = index === 0;
+      if (pair[1] === 'down') b.disabled = index === action.steps.length - 1;
+      if (pair[1] === 'del') b.className = 'danger';
+      icons.appendChild(b);
+    });
+    top.append(label, icons);
+    const grid = document.createElement('div');
+    grid.className = 'row-3';
+    function labeled(title, control) {
+      const wrap = document.createElement('label');
+      wrap.className = 'field';
+      const s = document.createElement('span');
+      s.textContent = title;
+      wrap.append(s, control);
+      return wrap;
+    }
+    const from = makeSelect(actorChoices(step.From_Actor).map(id => ({ value:id, label: actorShort(id) + ' — ' + id })), step.From_Actor, 'From_Actor');
+    const to = makeSelect(actorChoices(step.To_Actor).map(id => ({ value:id, label: actorShort(id) + ' — ' + id })), step.To_Actor, 'To_Actor');
+    const type = makeSelect(typeChoices(step.Connection_Type).map(id => ({ value:id, label: (TYPES[id] && TYPES[id].name) || id })), step.Connection_Type, 'Connection_Type');
+    grid.append(labeled('From', from), labeled('To', to), labeled('Connection', type));
+    const title = document.createElement('input');
+    title.type = 'text';
+    title.dataset.field = 'Process_Title';
+    title.value = step.Process_Title || '';
+    const desc = document.createElement('textarea');
+    desc.dataset.field = 'Process_Description';
+    desc.value = step.Process_Description || '';
+    const payload = document.createElement('input');
+    payload.type = 'text';
+    payload.dataset.field = 'Payload_Or_Signal';
+    payload.value = step.Payload_Or_Signal || '';
+    payload.spellcheck = false;
+    card.append(top, grid, labeled('Process title', title), labeled('Description', desc), labeled('Payload or signal', payload));
+    form.appendChild(card);
+  });
+  const addStep = document.createElement('button');
+  addStep.type = 'button';
+  addStep.id = 'ed-add-step';
+  addStep.textContent = 'Add step';
+  form.appendChild(addStep);
+}
+function refreshAfterEdit(structural) {
+  if (structural) {
+    halt();
+    state.playing = false;
+    if (state.currentAction != null && (state.currentAction >= state.actions.length || !state.actions[state.currentAction])) {
+      state.currentAction = null;
+      state.currentStep = -1;
+    }
+    const action = currentAction();
+    if (action && state.currentStep >= action.steps.length) {
+      state.currentStep = action.steps.length - 1;
+      play.t = 1;
+    }
+  }
+  renderActionList();
+  renderNow();
+  renderSteps();
+  renderActor();
+  updateChrome();
+  const step = currentStep();
+  applyVisuals();
+  if (step) placeSignal(findWire(step.From_Actor, step.To_Actor, step.Connection_Type), step, play.t || 1);
+  else hideSignal();
+}
+function onEditorInput(e) {
+  const action = state.actions[state.editorIndex];
+  if (!action) return;
+  if (e.target.id === 'ed-name') {
+    action.name = e.target.value;
+    renumber(action);
+    const btn = document.querySelector('[data-ed-action="' + state.editorIndex + '"]');
+    if (btn) btn.textContent = action.name || 'Untitled';
+    refreshAfterEdit(false);
+    return;
+  }
+  const card = e.target.closest('[data-step]');
+  if (!card) return;
+  const step = action.steps[Number(card.dataset.step)];
+  const field = e.target.dataset.field;
+  if (!step || !field) return;
+  step[field] = e.target.value;
+  renumber(action);
+  refreshAfterEdit(false);
+}
+function buildTable(headers, rows) {
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  headers.forEach(h => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    hr.appendChild(th);
+  });
+  thead.appendChild(hr);
+  const tb = document.createElement('tbody');
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    row.forEach(cell => {
+      const td = document.createElement('td');
+      td.textContent = cell;
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  table.append(thead, tb);
+  return table;
+}
+function legendTable() {
+  const wrap = document.createElement('div');
+  const h = document.createElement('h2');
+  h.textContent = 'Connection legend';
+  wrap.appendChild(h);
+  wrap.appendChild(buildTable(
+    ['Type', 'Style', 'Where it runs'],
+    Object.keys(TYPES).map(id => [TYPES[id].name, TYPES[id].style, TYPES[id].note])
+  ));
+  return wrap;
+}
+function bomTable() {
+  const wrap = document.createElement('div');
+  const h = document.createElement('h2');
+  h.textContent = 'Hardware bill of materials';
+  wrap.appendChild(h);
+  const rows = Object.keys(ACTORS).map(id => {
+    const a = ACTORS[id];
+    const sub = SUBSYSTEMS.find(s => s.id === a.sub);
+    return [sub.id + ' · ' + sub.name, id, a.name, a.model, a.notes];
+  });
+  wrap.appendChild(buildTable(['Subsystem', 'Actor ID', 'Component', 'Model', 'Notes'], rows));
+  const cautions = Object.keys(ACTORS).filter(id => ACTORS[id].caution);
+  if (cautions.length) {
+    const h2 = document.createElement('h2');
+    h2.textContent = 'Operating limits';
+    const ul = document.createElement('ul');
+    cautions.forEach(id => {
+      const li = document.createElement('li');
+      li.textContent = ACTORS[id].name + ': ' + ACTORS[id].caution;
+      ul.appendChild(li);
+    });
+    wrap.append(h2, ul);
+  }
+  return wrap;
+}
+function sequenceTable(action) {
+  const wrap = document.createElement('div');
+  const h = document.createElement('h2');
+  h.textContent = 'Steps';
+  wrap.appendChild(h);
+  wrap.appendChild(buildTable(
+    ['#', 'From', 'To', 'Connection', 'Process', 'Description', 'Payload'],
+    action.steps.map((s, i) => [
+      String(i + 1),
+      actorName(s.From_Actor),
+      actorName(s.To_Actor),
+      (TYPES[s.Connection_Type] && TYPES[s.Connection_Type].name) || s.Connection_Type,
+      s.Process_Title || '',
+      s.Process_Description || '',
+      s.Payload_Or_Signal || ''
+    ])
+  ));
+  return wrap;
+}
+function buildPrint(mode) {
+  const action = currentAction();
+  document.getElementById('print-h').textContent = mode === 'action' && action
+    ? 'Cash Machine — Action Sequence'
+    : 'Cash Machine — Hardware Wiring Schematic';
+  document.getElementById('print-sub').textContent = mode === 'action' && action
+    ? action.name + ' · ' + action.steps.length + ' steps'
+    : 'Full system wiring · print landscape on A3 or A4';
+  const body = document.getElementById('print-body');
+  body.replaceChildren();
+  if (mode === 'action' && action) {
+    body.append(sequenceTable(action), legendTable());
+  } else {
+    body.append(legendTable(), bomTable());
+  }
+}
+function doPrint(mode) {
+  if (mode === 'action' && !currentAction()) return;
+  document.getElementById('print-modal').hidden = true;
+  const saved = {
+    view: { x: state.view.x, y: state.view.y, scale: state.view.scale },
+    suspend: state.suspendLook,
+    force: state.forceActionLook
+  };
+  if (mode === 'schematic') {
+    state.suspendLook = true;
+    state.forceActionLook = false;
+  } else {
+    state.suspendLook = false;
+    state.forceActionLook = state.currentStep < 0;
+  }
+  state.view = { x:0, y:0, scale:1 };
+  applyView();
+  applyVisuals();
+  buildPrint(mode);
+  document.body.classList.remove('print-schematic', 'print-action');
+  document.body.classList.add(mode === 'action' ? 'print-action' : 'print-schematic');
+  const restore = () => {
+    window.removeEventListener('afterprint', restore);
+    state.view = saved.view;
+    state.suspendLook = saved.suspend;
+    state.forceActionLook = saved.force;
+    document.body.classList.remove('print-schematic', 'print-action');
+    applyView();
+    applyVisuals();
+  };
+  window.addEventListener('afterprint', restore);
+  window.print();
+}
+
+function wireUi() {
+  document.getElementById('action-list').addEventListener('click', e => {
+    const btn = e.target.closest('[data-action-index]');
+    if (!btn) return;
+    selectAction(Number(btn.dataset.actionIndex), true);
+  });
+  document.getElementById('steps').addEventListener('click', e => {
+    const btn = e.target.closest('[data-step-index]');
+    if (!btn) return;
+    jumpTo(Number(btn.dataset.stepIndex));
+  });
+  document.getElementById('btn-play').addEventListener('click', togglePlay);
+  document.getElementById('btn-replay').addEventListener('click', () => {
+    if (state.currentAction == null) return;
+    halt();
+    state.currentStep = 0;
+    play.t = 0;
+    state.playing = true;
+    runAnimation();
+  });
+  document.getElementById('btn-back').addEventListener('click', () => stepBy(-1));
+  document.getElementById('btn-fwd').addEventListener('click', () => stepBy(1));
+  document.getElementById('btn-reset').addEventListener('click', resetSystem);
+  document.getElementById('loop').addEventListener('change', e => { state.loop = e.target.checked; });
+  document.getElementById('speed').addEventListener('change', e => { state.speed = Number(e.target.value) || 1; });
+  document.getElementById('btn-load').addEventListener('click', () => document.getElementById('file-input').click());
+  document.getElementById('file-input').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (file) readFile(file);
+  });
+  document.getElementById('btn-save').addEventListener('click', downloadCSV);
+  document.getElementById('ed-save').addEventListener('click', downloadCSV);
+  document.getElementById('btn-edit').addEventListener('click', () => {
+    state.editorIndex = state.currentAction == null ? 0 : state.currentAction;
+    renderEditor();
+    document.getElementById('editor').hidden = false;
+  });
+  document.getElementById('ed-close').addEventListener('click', () => { document.getElementById('editor').hidden = true; });
+  document.getElementById('ed-restore').addEventListener('click', () => {
+    if (!window.confirm('Replace the current actions with the embedded example?')) return;
+    loadRows(parseCSV(DEFAULT_CSV), 'Embedded example', true);
+    state.editorIndex = 0;
+    renderEditor();
+  });
+  document.getElementById('editor').addEventListener('click', e => {
+    if (e.target.id === 'editor') document.getElementById('editor').hidden = true;
+  });
+  document.getElementById('editor').addEventListener('input', onEditorInput);
+  document.getElementById('btn-print').addEventListener('click', () => {
+    const action = currentAction();
+    const btn = document.getElementById('print-action');
+    btn.disabled = !action;
+    document.getElementById('print-modal').hidden = false;
+  });
+  document.getElementById('print-cancel').addEventListener('click', () => { document.getElementById('print-modal').hidden = true; });
+  document.getElementById('print-schematic').addEventListener('click', () => doPrint('schematic'));
+  document.getElementById('print-action').addEventListener('click', () => doPrint('action'));
+  document.getElementById('print-modal').addEventListener('click', e => {
+    if (e.target.id === 'print-modal') document.getElementById('print-modal').hidden = true;
+  });
+  document.getElementById('layer-power').addEventListener('change', e => diagram.classList.toggle('hide-power', !e.target.checked));
+  document.getElementById('layer-labels').addEventListener('change', e => diagram.classList.toggle('hide-labels', !e.target.checked));
+  document.getElementById('layer-boxes').addEventListener('change', e => diagram.classList.toggle('hide-boxes', !e.target.checked));
+  document.getElementById('toggle-left').addEventListener('click', e => {
+    document.body.classList.toggle('hide-left');
+    e.currentTarget.setAttribute('aria-pressed', document.body.classList.contains('hide-left') ? 'false' : 'true');
+    applyView();
+  });
+  document.getElementById('toggle-right').addEventListener('click', e => {
+    document.body.classList.toggle('hide-right');
+    e.currentTarget.setAttribute('aria-pressed', document.body.classList.contains('hide-right') ? 'false' : 'true');
+    applyView();
+  });
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    const rect = diagram.getBoundingClientRect();
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, state.view.scale * 1.2);
+  });
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    const rect = diagram.getBoundingClientRect();
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, state.view.scale / 1.2);
+  });
+  document.getElementById('zoom-fit').addEventListener('click', fitView);
+  wrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.0012);
+    zoomAt(e.clientX, e.clientY, state.view.scale * factor);
+  }, { passive:false });
+
+  let press = null;
+  diagram.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    press = {
+      x: e.clientX, y: e.clientY, id: e.pointerId,
+      node: e.target.closest ? e.target.closest('.node') : null
+    };
+    diagram.setPointerCapture(e.pointerId);
+  });
+  diagram.addEventListener('pointermove', e => {
+    if (!press || e.pointerId !== press.id) return;
+    const dx = e.clientX - press.x;
+    const dy = e.clientY - press.y;
+    if (!press.panning && dx * dx + dy * dy > 16) {
+      press.panning = true;
+      press.vx = state.view.x;
+      press.vy = state.view.y;
+      diagram.classList.add('dragging');
+    }
+    if (!press.panning) return;
+    const a = clientToViewBox(press.x, press.y);
+    const b = clientToViewBox(e.clientX, e.clientY);
+    state.view.x = press.vx + (b.x - a.x);
+    state.view.y = press.vy + (b.y - a.y);
+    applyView();
+  });
+  diagram.addEventListener('pointerup', e => {
+    if (!press || e.pointerId !== press.id) return;
+    const node = press.node;
+    const moved = press.panning;
+    press = null;
+    diagram.classList.remove('dragging');
+    if (!moved && node) openActor(node.getAttribute('data-actor'));
+  });
+  diagram.addEventListener('keydown', e => {
+    const node = e.target.closest && e.target.closest('.node');
+    if (!node) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openActor(node.getAttribute('data-actor'));
+    }
+  });
+
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => {
+    if (!e.dataTransfer || ![].slice.call(e.dataTransfer.types || []).includes('Files')) return;
+    e.preventDefault();
+    dragDepth++;
+    document.getElementById('dropmask').hidden = false;
+  });
+  window.addEventListener('dragover', e => {
+    if (!e.dataTransfer) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) document.getElementById('dropmask').hidden = true;
+  });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.getElementById('dropmask').hidden = true;
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) readFile(file);
+  });
+  document.addEventListener('keydown', e => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (e.key === 'Escape') {
+      document.getElementById('editor').hidden = true;
+      document.getElementById('print-modal').hidden = true;
+      return;
+    }
+    if (typing || !document.getElementById('editor').hidden || !document.getElementById('print-modal').hidden) return;
+    if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+    else if (e.code === 'ArrowRight') { e.preventDefault(); stepBy(1); }
+    else if (e.code === 'ArrowLeft') { e.preventDefault(); stepBy(-1); }
+  });
+  window.addEventListener('resize', layoutBadge);
+}
+
+/* Editor clicks that change structure. Input stays on the delegated listener above. */
+function bindEditorClicks() {
+  document.getElementById('editor').addEventListener('click', e => {
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.id === 'ed-add-action') {
+      const created = { name:'New Action', steps:[blankStep('New Action')] };
+      state.actions.push(created);
+      state.editorIndex = state.actions.length - 1;
+      renderEditor();
+      refreshAfterEdit(true);
+      return;
+    }
+    if (t.dataset.edAction != null) {
+      state.editorIndex = Number(t.dataset.edAction);
+      renderEditor();
+      return;
+    }
+    const action = state.actions[state.editorIndex];
+    if (!action) return;
+    if (t.id === 'ed-del-action') {
+      if (!window.confirm('Delete "' + action.name + '"?')) return;
+      const removed = state.editorIndex;
+      state.actions.splice(removed, 1);
+      if (state.currentAction === removed) {
+        state.currentAction = null;
+        state.currentStep = -1;
+      } else if (state.currentAction != null && state.currentAction > removed) {
+        state.currentAction -= 1;
+      }
+      state.editorIndex = Math.max(0, Math.min(state.editorIndex, state.actions.length - 1));
+      renderEditor();
+      refreshAfterEdit(true);
+      return;
+    }
+    if (t.id === 'ed-add-step') {
+      action.steps.push(blankStep(action.name));
+      renumber(action);
+      renderEditor();
+      refreshAfterEdit(true);
+      return;
+    }
+    if (t.dataset.delStep != null) {
+      const index = Number(t.dataset.delStep);
+      action.steps.splice(index, 1);
+      if (!action.steps.length) action.steps.push(blankStep(action.name));
+      renumber(action);
+      renderEditor();
+      refreshAfterEdit(true);
+      return;
+    }
+    if (t.dataset.up != null || t.dataset.down != null) {
+      const index = Number(t.dataset.up != null ? t.dataset.up : t.dataset.down);
+      const dest = t.dataset.up != null ? index - 1 : index + 1;
+      if (dest < 0 || dest >= action.steps.length) return;
+      const tmp = action.steps[index];
+      action.steps[index] = action.steps[dest];
+      action.steps[dest] = tmp;
+      renumber(action);
+      renderEditor();
+      refreshAfterEdit(true);
+    }
+  });
+}
+
+function selfCheck() {
+  const rows = parseCSV(DEFAULT_CSV);
+  if (rows.length < 1) throw new Error('Embedded CSV has no data rows.');
+  const eject = rows.find(r => r.Action_Name === 'Eject Plastic Card' && Number(r.Step) === 2);
+  if (!eject || eject.Payload_Or_Signal !== '{"cmd":"DISPENSE","type":"PLASTIC"}') {
+    throw new Error('Quoted commas did not stay inside one field.');
+  }
+  const rumble = rows.find(r => r.Action_Name === 'Rumble / Vibration Trigger' && Number(r.Step) === 4);
+  if (!rumble || rumble.Payload_Or_Signal !== 'Single-Ch Amplified Drive (Max 50W RMS)' || rumble.Process_Description.indexOf('single channel') === -1) {
+    throw new Error('Rumble step 4 was split on an internal comma.');
+  }
+  const again = parseCSV(serializeCSV(groupActions(rows)));
+  if (again.length !== rows.length || again[0].Payload_Or_Signal !== rows[0].Payload_Or_Signal) {
+    throw new Error('CSV round-trip changed the example data.');
+  }
+  rows.forEach(r => {
+    if (!ACTORS[r.From_Actor] || !ACTORS[r.To_Actor]) {
+      throw new Error('Unknown actor in embedded row ' + r.Action_Name + ' step ' + r.Step);
+    }
+    if (!findWire(r.From_Actor, r.To_Actor, r.Connection_Type)) {
+      throw new Error('No wire for ' + r.From_Actor + ' → ' + r.To_Actor + ' via ' + r.Connection_Type);
+    }
+  });
+}
+
+function boot() {
+  drawDiagram();
+  selfCheck();
+  loadRows(parseCSV(DEFAULT_CSV), 'Embedded example', false);
+  wireUi();
+  bindEditorClicks();
+  fitView();
+}
+
+try {
+  boot();
+} catch (err) {
+  const pre = document.createElement('pre');
+  pre.className = 'no-print';
+  pre.style.cssText = 'position:fixed;inset:12px;padding:16px;background:#3f1d24;color:#fecaca;overflow:auto;z-index:80';
+  pre.textContent = 'The diagram failed to start.\n\n' + (err && err.stack ? err.stack : err);
+  document.body.appendChild(pre);
+}
+</script>
+</body>
+</html>
